@@ -10,7 +10,7 @@ import { normalizeItem } from './normalize.js';
 export async function fetchAgent2Items(db, { limit = 100 } = {}) {
   const { data: handoffRows, error: handoffError } = await db
     .from('agent3_handoff_queue')
-    .select('id, job_id, result_ref, attempt_count, status')
+    .select('id, job_id, result_ref, attempt_count, status, created_at')
     .eq('status', 'pending')
     .limit(limit);
 
@@ -41,7 +41,8 @@ export async function fetchAgent2Items(db, { limit = 100 } = {}) {
       agent: 2,
       content_type: jobRow?.content_type ?? null,
       result: resultRow.result_json ?? null,
-      confidence: { level: resultRow.confidence_level, explanation: resultRow.confidence_text }
+      confidence: { level: resultRow.confidence_level, explanation: resultRow.confidence_text },
+      created_at: row.created_at
     });
     items.push({ ...normalized, handoff_queue_id: row.id });
   }

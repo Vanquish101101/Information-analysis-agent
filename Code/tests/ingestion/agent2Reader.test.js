@@ -6,7 +6,7 @@ import { makeFakeDb } from '../helpers/fakeSupabase.js';
 test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized item', async () => {
   const db = makeFakeDb({
     agent3_handoff_queue: () => ({
-      data: [{ id: 'hq-1', job_id: 'job-9', result_ref: 'pr-1', attempt_count: 0, status: 'pending' }],
+      data: [{ id: 'hq-1', job_id: 'job-9', result_ref: 'pr-1', attempt_count: 0, status: 'pending', created_at: '2026-07-07T09:00:00Z' }],
       error: null
     }),
     parsing_results: (state) => {
@@ -37,6 +37,7 @@ test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized i
   assert.deepEqual(items[0].result, { transcript: 'текст видео' });
   assert.equal(items[0].confidence.level, 'средняя');
   assert.equal(items[0].handoff_queue_id, 'hq-1');
+  assert.equal(items[0].created_at, '2026-07-07T09:00:00Z');
 });
 
 test('meta defaults to null-filled object since Agent 2 does not persist it yet', async () => {
