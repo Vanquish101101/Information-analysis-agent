@@ -53,3 +53,15 @@ test('defaults result and created_at to null when missing', () => {
   assert.equal(result.result, null);
   assert.equal(result.created_at, null);
 });
+
+test('regression: DEFAULT_META factory returns fresh array each call (no shared aliasing)', () => {
+  const result1 = normalizeItem({ job_id: 'job1', agent: 1 });
+  const result2 = normalizeItem({ job_id: 'job2', agent: 2 });
+
+  // Mutate first result's tools_used
+  result1.meta.tools_used.push('perplexity');
+
+  // Assert second result's tools_used is still empty (not corrupted by mutation)
+  assert.deepEqual(result2.meta.tools_used, [], 'tools_used arrays must not be shared');
+  assert.deepEqual(result1.meta.tools_used, ['perplexity'], 'first mutation must be preserved');
+});

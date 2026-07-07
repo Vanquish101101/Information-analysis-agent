@@ -3,11 +3,13 @@ const DEFAULT_CONFIDENCE = Object.freeze({
   explanation: 'confidence не указан источником'
 });
 
-const DEFAULT_META = Object.freeze({
-  tools_used: [],
-  cost_usd: null,
-  duration_sec: null
-});
+function defaultMeta() {
+  return {
+    tools_used: [],
+    cost_usd: null,
+    duration_sec: null
+  };
+}
 
 export function normalizeItem(item) {
   if (item == null || typeof item !== 'object') {
@@ -26,7 +28,7 @@ export function normalizeItem(item) {
     content_type: item.content_type ?? 'unknown',
     result: item.result ?? null,
     confidence: item.confidence?.level ? item.confidence : DEFAULT_CONFIDENCE,
-    meta: item.meta ?? DEFAULT_META,
+    meta: item.meta ?? defaultMeta(),
     created_at: item.created_at ?? null
   };
 }
