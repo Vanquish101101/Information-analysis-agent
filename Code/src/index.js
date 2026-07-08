@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { createSupabaseClient } from './db/client.js';
 import { createOpenRouterExtractor } from './llm/extractClaims.js';
 import { createDuplicateJudge } from './llm/judgeDuplicate.js';
+import { createContradictionJudge } from './llm/judgeContradiction.js';
 import { createGeminiEmbedder } from './embeddings/embedText.js';
 import { createRedisStateStore } from './scheduler/redisStateStore.js';
 import { createAnalysisGraph } from './graph/index.js';
@@ -28,6 +29,7 @@ function requireEnv(name) {
 
   const extractClaims = createOpenRouterExtractor({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
   const judgeDuplicate = createDuplicateJudge({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
+  const judgeContradiction = createContradictionJudge({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
   const embedText = createGeminiEmbedder({ apiKey: requireEnv('GEMINI_API_KEY'), heliconeApiKey });
   const stateStore = createRedisStateStore({ redisUrl: requireEnv('REDIS_URL') });
 
@@ -38,7 +40,7 @@ function requireEnv(name) {
     process.exit(1);
   }
 
-  const runAnalysis = createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate });
+  const runAnalysis = createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction });
 
   const telegramId = process.env.TELEGRAM_ALLOWED_USER_ID
     ? Number(process.env.TELEGRAM_ALLOWED_USER_ID)
