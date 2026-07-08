@@ -218,3 +218,31 @@ test('start() schedules repeated checkOnce polls, stop() halts them', async () =
   assert.ok(callsAfterStop >= 2, `expected at least 2 polling ticks, got ${callsAfterStop}`);
   assert.equal(fromCalls, callsAfterStop, 'stop() must prevent further polling');
 });
+
+test('works correctly with an async (Promise-returning) stateStore, not just a synchronous one', async () => {
+  const syncStore = createInMemoryStateStore();
+  const asyncStore = {
+    async get(key) { return syncStore.get(key); },
+    async set(key, value) { return syncStore.set(key, value); }
+  };
+
+  let currentTime = new Date('2026-07-08T08:00:00Z');
+  const db = makeFakeDb({
+    search_results: () => ({ data: [], error: null }),
+    agent3_handoff_queue: () => ({ data: [], error: null })
+  });
+  const calls = [];
+  const scheduler = createScheduler({
+    db,
+    stateStore: asyncStore,
+    onBatchReady: async (items, meta) => { calls.push({ items, meta }); },
+    telegramId: 123,
+    now: () => currentTime
+  });
+
+  assert.equal(await scheduler.checkOnce(), 'WAITING');
+
+  currentTime = new Date('2026-07-08T08:16:00Z');
+  assert.equal(await scheduler.checkOnce(), 'BATCH_READY');
+  assert.equal(calls.length, 1);
+});

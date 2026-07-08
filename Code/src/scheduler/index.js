@@ -29,10 +29,10 @@ export function createScheduler({
   async function checkOnce() {
     const currentTime = now();
     const currentDateStr = currentTime.toISOString().slice(0, 10);
-    const triggeredOnDate = stateStore.get(STATE_KEYS.triggeredOnDate);
+    const triggeredOnDate = await stateStore.get(STATE_KEYS.triggeredOnDate);
     const state = {
-      watchStartedAt: stateStore.get(STATE_KEYS.watchStartedAt),
-      lastSeenAt: stateStore.get(STATE_KEYS.lastSeenAt),
+      watchStartedAt: await stateStore.get(STATE_KEYS.watchStartedAt),
+      lastSeenAt: await stateStore.get(STATE_KEYS.lastSeenAt),
       triggeredToday: triggeredOnDate === currentDateStr
     };
 
@@ -44,7 +44,7 @@ export function createScheduler({
     try {
       if (!state.watchStartedAt) {
         state.watchStartedAt = currentTime.toISOString();
-        stateStore.set(STATE_KEYS.watchStartedAt, state.watchStartedAt);
+        await stateStore.set(STATE_KEYS.watchStartedAt, state.watchStartedAt);
       }
 
       let action = gateAction;
@@ -52,7 +52,7 @@ export function createScheduler({
         const { newestSeenAt } = await pollQueues(db, { telegramId, sinceTimestamp: state.lastSeenAt });
         if (newestSeenAt) {
           state.lastSeenAt = newestSeenAt;
-          stateStore.set(STATE_KEYS.lastSeenAt, newestSeenAt);
+          await stateStore.set(STATE_KEYS.lastSeenAt, newestSeenAt);
         }
         action = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
       }
@@ -72,9 +72,9 @@ export function createScheduler({
           console.error('scheduler: onBatchReady failed:', err.message);
         }
 
-        stateStore.set(STATE_KEYS.triggeredOnDate, currentDateStr);
-        stateStore.set(STATE_KEYS.watchStartedAt, null);
-        stateStore.set(STATE_KEYS.lastSeenAt, null);
+        await stateStore.set(STATE_KEYS.triggeredOnDate, currentDateStr);
+        await stateStore.set(STATE_KEYS.watchStartedAt, null);
+        await stateStore.set(STATE_KEYS.lastSeenAt, null);
       }
 
       return action;
