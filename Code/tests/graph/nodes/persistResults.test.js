@@ -95,6 +95,47 @@ test('creates a run with no writes when there are no claims at all', async () =>
   assert.equal(sourcesCalled, false);
 });
 
+test('creates one source per distinct (agent, jobId) pair when claims come from different sources', async () => {
+  let entityCounter = 0;
+  let sourceCounter = 0;
+  const inserted = { sources: [], entities: [], claims: [] };
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-5' }, error: null } : { error: null }),
+    sources: (state) => {
+      sourceCounter += 1;
+      inserted.sources.push(state.payload);
+      return { data: { id: `src-${sourceCounter}` }, error: null };
+    },
+    entities: (state) => {
+      entityCounter += 1;
+      inserted.entities.push(state.payload);
+      return { data: { id: `ent-${entityCounter}` }, error: null };
+    },
+    claims: (state) => {
+      inserted.claims.push(state.payload);
+      return { error: null };
+    }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }, { job_id: 'job-2' }],
+    claims: [
+      claim({ subject: 'A', source: { agent: 1, jobId: 'job-1', refType: 'search' } }),
+      claim({ subject: 'B', source: { agent: 2, jobId: 'job-2', refType: 'video' } })
+    ],
+    errors: []
+  };
+
+  const result = await node(state);
+
+  assert.equal(result.status, 'ok');
+  assert.equal(inserted.sources.length, 2, 'two distinct (agent, jobId) pairs produce two source rows');
+  assert.equal(inserted.claims.length, 2);
+  assert.equal(inserted.claims[0].source_id, 'src-1');
+  assert.equal(inserted.claims[1].source_id, 'src-2');
+});
+
 test('sets run status to error and rethrows when a write fails partway through', async () => {
   let runUpdatePayload = null;
   const db = makeFakeDb({

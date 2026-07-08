@@ -64,11 +64,17 @@ export function createPersistResultsNode({ db }) {
       }
 
       const finalStatus = state.errors.length > 0 ? 'partial' : 'ok';
-      await db.from('runs').update({ status: finalStatus }).eq('id', runId);
+      const { error: statusUpdateError } = await db.from('runs').update({ status: finalStatus }).eq('id', runId);
+      if (statusUpdateError) {
+        console.error(`persistResults: failed to update run status to "${finalStatus}":`, statusUpdateError.message);
+      }
 
       return { runId, status: finalStatus };
     } catch (err) {
-      await db.from('runs').update({ status: 'error' }).eq('id', runId);
+      const { error: rollbackError } = await db.from('runs').update({ status: 'error' }).eq('id', runId);
+      if (rollbackError) {
+        console.error('persistResults: failed to update run status to "error" during rollback:', rollbackError.message);
+      }
       throw err;
     }
   };
