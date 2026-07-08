@@ -1,0 +1,23 @@
+# Information analysis agent/Code/docker-compose.yml
+name: information-analysis-agent
+
+services:
+  information-analysis-agent:
+    build: .
+    image: information-analysis-agent:v0.3.0
+    container_name: information-analysis-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Переопределяет .env: внутри контейнера Redis доступен по имени сервиса
+      # на общей сети, а не по localhost (тот — для локального запуска вне Docker).
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - marketing-agency-net
+
+networks:
+  marketing-agency-net:
+    name: marketing-agency-net
+    external: true
