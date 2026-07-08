@@ -1,0 +1,68 @@
+export function createDuplicateJudge({ apiKey, model = 'anthropic/claude-haiku-4-5', fetchImpl = fetch } = {}) {
+  if (!apiKey) {
+    throw new Error('createDuplicateJudge: apiKey is required');
+  }
+
+  return async function judgeDuplicate({ kind, new: newText, candidate }) {
+    const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://vanquish.information-analysis-agent',
+        'X-Title': 'Information Analysis Agent'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: buildPrompt(kind, newText, candidate) }],
+        max_tokens: 300
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`judgeDuplicate: LLM HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('judgeDuplicate: LLM returned no content');
+    }
+
+    return parseVerdict(content);
+  };
+}
+
+function buildPrompt(kind, newText, candidate) {
+  const subject = kind === 'entity' ? 'сущности (entity)' : 'факта (claim)';
+  return `Ты — судья, определяющий дубликаты ${subject}.
+
+НОВОЕ: ${newText}
+СУЩЕСТВУЮЩЕЕ: ${candidate}
+
+Это одно и то же (с учётом разных формулировок/языка), или разные вещи?
+Ответь строго JSON-объектом без пояснений вокруг:
+{"is_duplicate": true|false, "reasoning": "краткое обоснование"}`;
+}
+
+function parseVerdict(content) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stripCodeFence(content));
+  } catch (err) {
+    throw new Error(`judgeDuplicate: LLM returned invalid JSON: ${err.message}`);
+  }
+  if (typeof parsed.is_duplicate !== 'boolean') {
+    throw new Error('judgeDuplicate: LLM response missing boolean is_duplicate');
+  }
+  return {
+    isDuplicate: parsed.is_duplicate,
+    reasoning: parsed.reasoning ?? null
+  };
+}
+
+function stripCodeFence(text) {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return fenceMatch ? fenceMatch[1] : trimmed;
+}
