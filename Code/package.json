@@ -1,6 +1,6 @@
 {
   "name": "information-analysis-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Агент семантического анализа и синтеза — третье звено цепочки Marketing agency Project",
   "type": "module",
   "scripts": {
