@@ -75,9 +75,36 @@ test('idle 15 minutes with no activity at all triggers BATCH_READY with reason i
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].items, []);
   assert.equal(calls[0].meta.reason, 'idle');
-  assert.equal(stateStore.get('triggeredToday'), true);
+  assert.equal(stateStore.get('triggeredOnDate'), '2026-07-08');
   assert.equal(stateStore.get('watchStartedAt'), null);
   assert.equal(stateStore.get('lastSeenAt'), null);
+});
+
+test('triggeredOnDate resets on a new UTC day, re-arming the scheduler', async () => {
+  let currentTime = new Date('2026-07-08T08:00:00Z');
+  const db = makeFakeDb({
+    search_results: () => ({ data: [], error: null }),
+    agent3_handoff_queue: () => ({ data: [], error: null })
+  });
+  const calls = [];
+  const stateStore = createInMemoryStateStore();
+  const scheduler = createScheduler({
+    db,
+    stateStore,
+    onBatchReady: async (items, meta) => { calls.push({ items, meta }); },
+    telegramId: 123,
+    now: () => currentTime
+  });
+
+  assert.equal(await scheduler.checkOnce(), 'WAITING');
+
+  currentTime = new Date('2026-07-08T08:16:00Z');
+  assert.equal(await scheduler.checkOnce(), 'BATCH_READY');
+  assert.equal(calls.length, 1);
+  assert.equal(stateStore.get('triggeredOnDate'), '2026-07-08');
+
+  currentTime = new Date('2026-07-09T08:00:00Z');
+  assert.equal(await scheduler.checkOnce(), 'WAITING');
 });
 
 test('a new item arriving resets the idle clock', async () => {
@@ -164,7 +191,7 @@ test('onBatchReady throwing does not crash checkOnce and state still resets', as
   const action = await scheduler.checkOnce();
 
   assert.equal(action, 'BATCH_READY');
-  assert.equal(stateStore.get('triggeredToday'), true);
+  assert.equal(stateStore.get('triggeredOnDate'), '2026-07-08');
 });
 
 test('start() schedules repeated checkOnce polls, stop() halts them', async () => {

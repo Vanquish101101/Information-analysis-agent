@@ -5,7 +5,7 @@ import { pollQueues } from './pollQueues.js';
 const STATE_KEYS = {
   watchStartedAt: 'watchStartedAt',
   lastSeenAt: 'lastSeenAt',
-  triggeredToday: 'triggeredToday'
+  triggeredOnDate: 'triggeredOnDate'
 };
 
 export function createScheduler({
@@ -28,10 +28,12 @@ export function createScheduler({
 
   async function checkOnce() {
     const currentTime = now();
+    const currentDateStr = currentTime.toISOString().slice(0, 10);
+    const triggeredOnDate = stateStore.get(STATE_KEYS.triggeredOnDate);
     const state = {
       watchStartedAt: stateStore.get(STATE_KEYS.watchStartedAt),
       lastSeenAt: stateStore.get(STATE_KEYS.lastSeenAt),
-      triggeredToday: stateStore.get(STATE_KEYS.triggeredToday) ?? false
+      triggeredToday: triggeredOnDate === currentDateStr
     };
 
     const gateAction = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
@@ -39,42 +41,47 @@ export function createScheduler({
       return 'OUTSIDE_WINDOW';
     }
 
-    if (!state.watchStartedAt) {
-      state.watchStartedAt = currentTime.toISOString();
-      stateStore.set(STATE_KEYS.watchStartedAt, state.watchStartedAt);
-    }
-
-    let action = gateAction;
-    if (gateAction !== 'FORCED_CEILING') {
-      const { newestSeenAt } = await pollQueues(db, { telegramId, sinceTimestamp: state.lastSeenAt });
-      if (newestSeenAt) {
-        state.lastSeenAt = newestSeenAt;
-        stateStore.set(STATE_KEYS.lastSeenAt, newestSeenAt);
-      }
-      action = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
-    }
-
-    if (action === 'BATCH_READY' || action === 'FORCED_CEILING') {
-      let batchItems = [];
-      try {
-        const result = await pollQueues(db, { telegramId, sinceTimestamp: null });
-        batchItems = result.items;
-      } catch (err) {
-        console.error('scheduler: full-range pollQueues failed at trigger:', err.message);
+    try {
+      if (!state.watchStartedAt) {
+        state.watchStartedAt = currentTime.toISOString();
+        stateStore.set(STATE_KEYS.watchStartedAt, state.watchStartedAt);
       }
 
-      try {
-        await onBatchReady(batchItems, { reason: action === 'BATCH_READY' ? 'idle' : 'ceiling' });
-      } catch (err) {
-        console.error('scheduler: onBatchReady failed:', err.message);
+      let action = gateAction;
+      if (gateAction !== 'FORCED_CEILING') {
+        const { newestSeenAt } = await pollQueues(db, { telegramId, sinceTimestamp: state.lastSeenAt });
+        if (newestSeenAt) {
+          state.lastSeenAt = newestSeenAt;
+          stateStore.set(STATE_KEYS.lastSeenAt, newestSeenAt);
+        }
+        action = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
       }
 
-      stateStore.set(STATE_KEYS.triggeredToday, true);
-      stateStore.set(STATE_KEYS.watchStartedAt, null);
-      stateStore.set(STATE_KEYS.lastSeenAt, null);
-    }
+      if (action === 'BATCH_READY' || action === 'FORCED_CEILING') {
+        let batchItems = [];
+        try {
+          const result = await pollQueues(db, { telegramId, sinceTimestamp: null });
+          batchItems = result.items;
+        } catch (err) {
+          console.error('scheduler: full-range pollQueues failed at trigger:', err.message);
+        }
 
-    return action;
+        try {
+          await onBatchReady(batchItems, { reason: action === 'BATCH_READY' ? 'idle' : 'ceiling' });
+        } catch (err) {
+          console.error('scheduler: onBatchReady failed:', err.message);
+        }
+
+        stateStore.set(STATE_KEYS.triggeredOnDate, currentDateStr);
+        stateStore.set(STATE_KEYS.watchStartedAt, null);
+        stateStore.set(STATE_KEYS.lastSeenAt, null);
+      }
+
+      return action;
+    } catch (err) {
+      console.error('scheduler: checkOnce failed, treating tick as WAITING:', err.message);
+      return 'WAITING';
+    }
   }
 
   function start(intervalMs) {
