@@ -35,28 +35,70 @@ export function createPersistResultsNode({ db }) {
         }
       }
 
+      const newEntityIds = new Map();
+      for (const claim of state.claims) {
+        if (claim.isDuplicate) continue;
+        if (claim.subjectEntityId) {
+          const { error: touchError } = await db
+            .from('entities')
+            .update({ last_seen_at: new Date().toISOString() })
+            .eq('id', claim.subjectEntityId);
+          if (touchError) {
+            throw new Error(`persistResults: failed to update entity last_seen_at: ${touchError.message}`);
+          }
+          continue;
+        }
+        if (!newEntityIds.has(claim.batchEntityKey)) {
+          const { data: entityRow, error: entityError } = await db
+            .from('entities')
+            .insert({ name: claim.subject, embedding: claim.subjectEmbedding })
+            .select()
+            .single();
+          if (entityError) {
+            throw new Error(`persistResults: failed to create entity: ${entityError.message}`);
+          }
+          newEntityIds.set(claim.batchEntityKey, entityRow.id);
+        }
+      }
+
       for (const claim of state.claims) {
         const sourceKey = `${claim.source.agent}:${claim.source.jobId}`;
         const sourceId = sourceIds.get(sourceKey);
 
-        const { data: entityRow, error: entityError } = await db
-          .from('entities')
-          .insert({ name: claim.subject })
-          .select()
-          .single();
-        if (entityError) {
-          throw new Error(`persistResults: failed to create entity: ${entityError.message}`);
+        if (claim.isDuplicate) {
+          const { error: updateError } = await db
+            .from('claims')
+            .update({
+              confidence_level: claim.bumpedConfidenceLevel,
+              confidence_explanation: claim.bumpedConfidenceExplanation
+            })
+            .eq('id', claim.duplicateOfClaimId);
+          if (updateError) {
+            throw new Error(`persistResults: failed to update duplicate claim: ${updateError.message}`);
+          }
+          continue;
         }
+
+        // dedup.js's error-fallback path (embedText/judgeDuplicate/RPC threw for
+        // this claim) leaves claimEmbedding null — the claim couldn't be
+        // resolved at all, and the failure is already recorded in
+        // state.errors. Skip persisting a claims row for it: inserting one
+        // with a null embedding would either violate the vector column or
+        // silently create a claim unfindable by future dedup lookups.
+        if (claim.claimEmbedding == null) continue;
+
+        const subjectEntityId = claim.subjectEntityId ?? newEntityIds.get(claim.batchEntityKey);
 
         const { error: claimError } = await db
           .from('claims')
           .insert({
-            subject_entity_id: entityRow.id,
+            subject_entity_id: subjectEntityId,
             predicate: claim.predicate,
             object_value: claim.object_value,
             confidence_level: claim.confidence_level,
             confidence_explanation: claim.confidence_explanation,
-            source_id: sourceId
+            source_id: sourceId,
+            embedding: claim.claimEmbedding
           });
         if (claimError) {
           throw new Error(`persistResults: failed to create claim: ${claimError.message}`);

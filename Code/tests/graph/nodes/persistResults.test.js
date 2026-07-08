@@ -12,6 +12,11 @@ function claim(overrides = {}) {
     confidence_level: 'высокая',
     confidence_explanation: 'ok',
     source: { agent: 1, jobId: 'job-1', refType: 'search' },
+    isDuplicate: false,
+    subjectEntityId: null,
+    subjectEmbedding: [0.1, 0.2],
+    claimEmbedding: [0.3, 0.4],
+    batchEntityKey: 'subject',
     ...overrides
   };
 }
@@ -43,7 +48,10 @@ test('creates a run, one source per unique job, one entity+claim per claim, stat
   const node = createPersistResultsNode({ db });
   const state = {
     items: [{ job_id: 'job-1' }],
-    claims: [claim({ subject: 'A' }), claim({ subject: 'B' })],
+    claims: [
+      claim({ subject: 'A', batchEntityKey: 'a' }),
+      claim({ subject: 'B', batchEntityKey: 'b' })
+    ],
     errors: []
   };
 
@@ -153,4 +161,140 @@ test('sets run status to error and rethrows when a write fails partway through',
 
   await assert.rejects(() => node(state), /failed to create entity/);
   assert.equal(runUpdatePayload.status, 'error');
+});
+
+test('reusing an existing entity does not insert a new entities row, and updates its last_seen_at', async () => {
+  const entityUpdates = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-6' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: (state) => {
+      if (state.operation === 'update') {
+        entityUpdates.push(state.payload);
+        return { error: null };
+      }
+      throw new Error('should not insert a new entity when subjectEntityId is already resolved');
+    },
+    claims: () => ({ error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim({ subjectEntityId: 'ent-existing', subjectEmbedding: null, batchEntityKey: null })],
+    errors: []
+  };
+
+  await node(state);
+
+  assert.equal(entityUpdates.length, 1);
+  assert.ok(entityUpdates[0].last_seen_at);
+});
+
+test('two claims sharing a batchEntityKey (both new) create only one entity, reused for both claims', async () => {
+  let entityInsertCount = 0;
+  const insertedClaims = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-7' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: (state) => {
+      entityInsertCount += 1;
+      return { data: { id: `ent-${entityInsertCount}` }, error: null };
+    },
+    claims: (state) => {
+      insertedClaims.push(state.payload);
+      return { error: null };
+    }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [
+      claim({ subject: 'Same Subject', batchEntityKey: 'same subject' }),
+      claim({ subject: 'Same Subject', object_value: 'other value', batchEntityKey: 'same subject' })
+    ],
+    errors: []
+  };
+
+  await node(state);
+
+  assert.equal(entityInsertCount, 1);
+  assert.equal(insertedClaims.length, 2);
+  assert.equal(insertedClaims[0].subject_entity_id, 'ent-1');
+  assert.equal(insertedClaims[1].subject_entity_id, 'ent-1');
+});
+
+test('a claim marked isDuplicate updates the existing claim instead of inserting a new one', async () => {
+  let claimsInsertCalled = false;
+  let claimsUpdatePayload = null;
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-8' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    claims: (state) => {
+      if (state.operation === 'insert') { claimsInsertCalled = true; return { error: null }; }
+      claimsUpdatePayload = state.payload;
+      return { error: null };
+    }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim({
+      isDuplicate: true,
+      duplicateOfClaimId: 'claim-existing',
+      bumpedConfidenceLevel: 'средняя',
+      bumpedConfidenceExplanation: 'ok Подтверждено дополнительным источником (agent 1, job job-1).',
+      subjectEntityId: 'ent-existing'
+    })],
+    errors: []
+  };
+
+  await node(state);
+
+  assert.equal(claimsInsertCalled, false);
+  assert.equal(claimsUpdatePayload.confidence_level, 'средняя');
+  assert.match(claimsUpdatePayload.confidence_explanation, /Подтверждено дополнительным источником/);
+});
+
+test('new entities and claims are created with their embedding column populated', async () => {
+  const insertedEntities = [];
+  const insertedClaims = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-9' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: (state) => { insertedEntities.push(state.payload); return { data: { id: 'ent-1' }, error: null }; },
+    claims: (state) => { insertedClaims.push(state.payload); return { error: null }; }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: [] };
+
+  await node(state);
+
+  assert.deepEqual(insertedEntities[0].embedding, [0.1, 0.2]);
+  assert.deepEqual(insertedClaims[0].embedding, [0.3, 0.4]);
+});
+
+test('a claim with a null claimEmbedding (dedup error-fallback) is skipped for the claims insert, but its entity is still created', async () => {
+  const insertedEntities = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-10' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: (state) => { insertedEntities.push(state.payload); return { data: { id: 'ent-1' }, error: null }; },
+    claims: () => { throw new Error('should not insert a claims row for a claim with a null claimEmbedding'); }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim({ claimEmbedding: null, isDuplicate: false })],
+    errors: ['dedup failed for claim subject "Subject": embedding error']
+  };
+
+  const result = await node(state);
+
+  assert.equal(insertedEntities.length, 1, 'entity grouping/creation still happens even when the claim itself is skipped');
+  assert.equal(result.status, 'partial');
 });
