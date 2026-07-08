@@ -32,6 +32,19 @@ test('builds the request with the correct URL, model, and both texts in the prom
   assert.match(body.messages[0].content, /Продукт Y/);
 });
 
+test('routes through Helicone proxy and adds Helicone-Auth header when heliconeApiKey is set', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"is_duplicate": true, "reasoning": "ok"}' } }] });
+  const judgeDuplicate = createDuplicateJudge({ apiKey: 'secret-key', heliconeApiKey: 'helicone-key', fetchImpl });
+
+  await judgeDuplicate({ kind: 'entity', new: 'X', candidate: 'Y' });
+
+  assert.equal(fetchImpl.calls.length, 1);
+  const { url, options } = fetchImpl.calls[0];
+  assert.equal(url, 'https://openrouter.helicone.ai/api/v1/chat/completions');
+  assert.equal(options.headers['Authorization'], 'Bearer secret-key');
+  assert.equal(options.headers['Helicone-Auth'], 'Bearer helicone-key');
+});
+
 test('parses a positive verdict', async () => {
   const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"is_duplicate": true, "reasoning": "то же самое"}' } }] });
   const judgeDuplicate = createDuplicateJudge({ apiKey: 'test-key', fetchImpl });

@@ -1,14 +1,26 @@
-export function createGeminiEmbedder({ apiKey, model = 'gemini-embedding-001', fetchImpl = fetch } = {}) {
+export function createGeminiEmbedder({ apiKey, model = 'gemini-embedding-001', heliconeApiKey, fetchImpl = fetch } = {}) {
   if (!apiKey) {
     throw new Error('createGeminiEmbedder: apiKey is required');
   }
 
+  const baseUrl = heliconeApiKey
+    ? 'https://gateway.helicone.ai/v1beta/models'
+    : 'https://generativelanguage.googleapis.com/v1beta/models';
+
   return async function embedText(text) {
     const response = await fetchImpl(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,
+      `${baseUrl}/${model}:embedContent?key=${apiKey}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(heliconeApiKey
+            ? {
+                'Helicone-Auth': `Bearer ${heliconeApiKey}`,
+                'Helicone-Target-URL': 'https://generativelanguage.googleapis.com'
+              }
+            : {})
+        },
         body: JSON.stringify({
           content: { parts: [{ text }] },
           outputDimensionality: 768

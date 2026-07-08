@@ -67,6 +67,19 @@ test('builds the request with the correct URL, model, and headers', async () => 
   assert.equal(body.model, 'anthropic/claude-haiku-4-5');
 });
 
+test('routes through Helicone proxy and adds Helicone-Auth header when heliconeApiKey is set', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }] });
+  const extractClaims = createOpenRouterExtractor({ apiKey: 'secret-key', heliconeApiKey: 'helicone-key', fetchImpl });
+
+  await extractClaims({ job_id: 'job-helicone', agent: 1, result: { summary: 'тест' } });
+
+  assert.equal(fetchImpl.calls.length, 1);
+  const { url, options } = fetchImpl.calls[0];
+  assert.equal(url, 'https://openrouter.helicone.ai/api/v1/chat/completions');
+  assert.equal(options.headers['Authorization'], 'Bearer secret-key');
+  assert.equal(options.headers['Helicone-Auth'], 'Bearer helicone-key');
+});
+
 test('parses a valid JSON array response into RawClaim objects', async () => {
   const fetchImpl = fakeFetch({
     choices: [{

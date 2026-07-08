@@ -1,10 +1,14 @@
 
 const CONFIDENCE_LEVELS = ['высокая', 'средняя', 'низкая'];
 
-export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-haiku-4-5', fetchImpl = fetch } = {}) {
+export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-haiku-4-5', heliconeApiKey, fetchImpl = fetch } = {}) {
   if (!apiKey) {
     throw new Error('createOpenRouterExtractor: apiKey is required');
   }
+
+  const url = heliconeApiKey
+    ? 'https://openrouter.helicone.ai/api/v1/chat/completions'
+    : 'https://openrouter.ai/api/v1/chat/completions';
 
   return async function extractClaims(item) {
     const text = extractableText(item);
@@ -12,13 +16,14 @@ export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-ha
       return [];
     }
 
-    const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetchImpl(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://vanquish.information-analysis-agent',
-        'X-Title': 'Information Analysis Agent'
+        'X-Title': 'Information Analysis Agent',
+        ...(heliconeApiKey ? { 'Helicone-Auth': `Bearer ${heliconeApiKey}` } : {})
       },
       body: JSON.stringify({
         model,

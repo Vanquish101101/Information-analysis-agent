@@ -24,9 +24,11 @@ function requireEnv(name) {
     serviceKey: requireEnv('SUPABASE_SERVICE_KEY')
   });
 
-  const extractClaims = createOpenRouterExtractor({ apiKey: requireEnv('OPENROUTER_API_KEY') });
-  const judgeDuplicate = createDuplicateJudge({ apiKey: requireEnv('OPENROUTER_API_KEY') });
-  const embedText = createGeminiEmbedder({ apiKey: requireEnv('GEMINI_API_KEY') });
+  const heliconeApiKey = process.env.HELICONE_API_KEY || undefined;
+
+  const extractClaims = createOpenRouterExtractor({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
+  const judgeDuplicate = createDuplicateJudge({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
+  const embedText = createGeminiEmbedder({ apiKey: requireEnv('GEMINI_API_KEY'), heliconeApiKey });
   const stateStore = createRedisStateStore({ redisUrl: requireEnv('REDIS_URL') });
 
   try {

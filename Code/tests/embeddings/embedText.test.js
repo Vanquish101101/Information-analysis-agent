@@ -34,6 +34,19 @@ test('requests outputDimensionality: 768 and hits the embedContent endpoint', as
   assert.equal(body.content.parts[0].text, 'some text');
 });
 
+test('routes through Helicone gateway with target-URL header when heliconeApiKey is set', async () => {
+  const fetchImpl = fakeFetch({ embedding: { values: embeddingOf(768) } });
+  const embedText = createGeminiEmbedder({ apiKey: 'test-key', heliconeApiKey: 'helicone-key', fetchImpl });
+
+  await embedText('some text');
+
+  assert.equal(fetchImpl.calls.length, 1);
+  const { url, options } = fetchImpl.calls[0];
+  assert.equal(url, 'https://gateway.helicone.ai/v1beta/models/gemini-embedding-001:embedContent?key=test-key');
+  assert.equal(options.headers['Helicone-Auth'], 'Bearer helicone-key');
+  assert.equal(options.headers['Helicone-Target-URL'], 'https://generativelanguage.googleapis.com');
+});
+
 test('returns the embedding array on success', async () => {
   const fetchImpl = fakeFetch({ embedding: { values: embeddingOf(768, 0.5) } });
   const embedText = createGeminiEmbedder({ apiKey: 'test-key', fetchImpl });
