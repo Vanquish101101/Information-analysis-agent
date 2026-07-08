@@ -7,7 +7,7 @@ const KEY_PREFIX = 'scheduler:agent3:';
 // пишет строку "null" — иначе следующий get() вернул бы truthy-строку
 // вместо настоящего null, ломая проверки вида `!state.watchStartedAt`.
 export function createRedisStateStore({ redisUrl, client } = {}) {
-  const redis = client ?? new Redis(redisUrl);
+  const redis = client ?? new Redis(redisUrl, { maxRetriesPerRequest: 2, connectTimeout: 5000 });
 
   return {
     async get(key) {

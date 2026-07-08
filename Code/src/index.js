@@ -16,25 +16,35 @@ function requireEnv(name) {
   return value;
 }
 
-const db = createSupabaseClient({
-  url: requireEnv('SUPABASE_URL'),
-  serviceKey: requireEnv('SUPABASE_SERVICE_KEY')
-});
+(async () => {
+  const db = createSupabaseClient({
+    url: requireEnv('SUPABASE_URL'),
+    serviceKey: requireEnv('SUPABASE_SERVICE_KEY')
+  });
 
-const extractClaims = createOpenRouterExtractor({ apiKey: requireEnv('OPENROUTER_API_KEY') });
-const stateStore = createRedisStateStore({ redisUrl: requireEnv('REDIS_URL') });
-const runAnalysis = createAnalysisGraph({ db, extractClaims });
+  const extractClaims = createOpenRouterExtractor({ apiKey: requireEnv('OPENROUTER_API_KEY') });
+  const stateStore = createRedisStateStore({ redisUrl: requireEnv('REDIS_URL') });
 
-const telegramId = process.env.TELEGRAM_ALLOWED_USER_ID
-  ? Number(process.env.TELEGRAM_ALLOWED_USER_ID)
-  : undefined;
+  try {
+    await stateStore.get('__startup_healthcheck__');
+  } catch (err) {
+    console.error('index.js: Redis unreachable at startup:', err.message);
+    process.exit(1);
+  }
 
-const scheduler = createScheduler({
-  db,
-  stateStore,
-  onBatchReady: runAnalysis,
-  telegramId
-});
+  const runAnalysis = createAnalysisGraph({ db, extractClaims });
 
-console.log(`Information Analysis Agent: scheduler starting, polling every ${POLL_INTERVAL_MS}ms`);
-scheduler.start(POLL_INTERVAL_MS);
+  const telegramId = process.env.TELEGRAM_ALLOWED_USER_ID
+    ? Number(process.env.TELEGRAM_ALLOWED_USER_ID)
+    : undefined;
+
+  const scheduler = createScheduler({
+    db,
+    stateStore,
+    onBatchReady: runAnalysis,
+    telegramId
+  });
+
+  console.log(`Information Analysis Agent: scheduler starting, polling every ${POLL_INTERVAL_MS}ms`);
+  scheduler.start(POLL_INTERVAL_MS);
+})();

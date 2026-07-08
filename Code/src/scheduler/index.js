@@ -29,19 +29,20 @@ export function createScheduler({
   async function checkOnce() {
     const currentTime = now();
     const currentDateStr = currentTime.toISOString().slice(0, 10);
-    const triggeredOnDate = await stateStore.get(STATE_KEYS.triggeredOnDate);
-    const state = {
-      watchStartedAt: await stateStore.get(STATE_KEYS.watchStartedAt),
-      lastSeenAt: await stateStore.get(STATE_KEYS.lastSeenAt),
-      triggeredToday: triggeredOnDate === currentDateStr
-    };
-
-    const gateAction = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
-    if (gateAction === 'OUTSIDE_WINDOW') {
-      return 'OUTSIDE_WINDOW';
-    }
 
     try {
+      const triggeredOnDate = await stateStore.get(STATE_KEYS.triggeredOnDate);
+      const state = {
+        watchStartedAt: await stateStore.get(STATE_KEYS.watchStartedAt),
+        lastSeenAt: await stateStore.get(STATE_KEYS.lastSeenAt),
+        triggeredToday: triggeredOnDate === currentDateStr
+      };
+
+      const gateAction = decideAction({ now: currentTime, ...state, idleMinutes, ceilingHour, windowStartHour });
+      if (gateAction === 'OUTSIDE_WINDOW') {
+        return 'OUTSIDE_WINDOW';
+      }
+
       if (!state.watchStartedAt) {
         state.watchStartedAt = currentTime.toISOString();
         await stateStore.set(STATE_KEYS.watchStartedAt, state.watchStartedAt);
