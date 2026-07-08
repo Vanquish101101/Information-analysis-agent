@@ -20,7 +20,8 @@ export function createDuplicateJudge({ apiKey, model = 'anthropic/claude-haiku-4
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: buildPrompt(kind, newText, candidate) }],
-        max_tokens: 300
+        max_tokens: 300,
+        usage: { include: true }
       })
     });
 
@@ -34,7 +35,7 @@ export function createDuplicateJudge({ apiKey, model = 'anthropic/claude-haiku-4
       throw new Error('judgeDuplicate: LLM returned no content');
     }
 
-    return parseVerdict(content);
+    return { ...parseVerdict(content), costUsd: data.usage?.cost ?? 0 };
   };
 }
 
