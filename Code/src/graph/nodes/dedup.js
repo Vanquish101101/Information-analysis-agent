@@ -20,7 +20,8 @@ export function createDedupNode({ db, embedText, judgeDuplicate }) {
           subjectEntityId: null,
           subjectEmbedding: null,
           claimEmbedding: null,
-          batchEntityKey: normalizeKey(claim.subject)
+          batchEntityKey: normalizeKey(claim.subject),
+          contradictionCandidate: null
         });
       }
     }
@@ -39,16 +40,17 @@ async function resolveClaim({ db, embedText, judgeDuplicate, claim }) {
   if (subjectEntityId) {
     const claimText = buildClaimText(claim);
     const claimEmbedding = await embedText(claimText);
-    const duplicate = await resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding, subjectEntityId });
+    const { candidate, isDuplicate } = await resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding, subjectEntityId });
 
-    if (duplicate) {
+    if (isDuplicate) {
       return {
         ...claim,
         isDuplicate: true,
-        duplicateOfClaimId: duplicate.id,
-        bumpedConfidenceLevel: bumpConfidence(duplicate.confidence_level),
-        bumpedConfidenceExplanation: buildBumpedExplanation(duplicate.confidence_explanation, claim),
-        subjectEntityId
+        duplicateOfClaimId: candidate.id,
+        bumpedConfidenceLevel: bumpConfidence(candidate.confidence_level),
+        bumpedConfidenceExplanation: buildBumpedExplanation(candidate.confidence_explanation, claim),
+        subjectEntityId,
+        contradictionCandidate: null
       };
     }
 
@@ -58,7 +60,8 @@ async function resolveClaim({ db, embedText, judgeDuplicate, claim }) {
       subjectEntityId,
       subjectEmbedding: null,
       claimEmbedding,
-      batchEntityKey: null
+      batchEntityKey: null,
+      contradictionCandidate: candidate
     };
   }
 
@@ -71,7 +74,8 @@ async function resolveClaim({ db, embedText, judgeDuplicate, claim }) {
     subjectEntityId: null,
     subjectEmbedding,
     claimEmbedding,
-    batchEntityKey: normalizeKey(claim.subject)
+    batchEntityKey: normalizeKey(claim.subject),
+    contradictionCandidate: null
   };
 }
 
@@ -98,7 +102,7 @@ async function resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding
   });
 
   if (error || !candidates || candidates.length === 0) {
-    return null;
+    return { candidate: null, isDuplicate: false };
   }
 
   const top = candidates[0];
@@ -107,7 +111,7 @@ async function resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding
     new: buildClaimText(claim),
     candidate: `${top.predicate}: ${top.object_value ?? ''}`
   });
-  return verdict.isDuplicate ? top : null;
+  return { candidate: top, isDuplicate: verdict.isDuplicate };
 }
 
 function buildClaimText(claim) {

@@ -94,6 +94,58 @@ test('claim candidate confirmed by judge on a resolved entity: marks as duplicat
   assert.match(resolved.bumpedConfidenceExplanation, /agent 2, job job-9/);
 });
 
+test('claim candidate exists but judge rejects duplicate: contradictionCandidate carries the rejected candidate through', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({
+      data: [{
+        id: 'claim-1', predicate: 'имеет цену', object_value: '899 руб',
+        confidence_level: 'высокая', confidence_explanation: 'другой источник', similarity: 0.87
+      }],
+      error: null
+    })
+  });
+  const embedText = async () => [0.1, 0.2];
+  const judgeDuplicate = async ({ kind }) => (kind === 'entity' ? { isDuplicate: true } : { isDuplicate: false });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  const resolved = result.claims.value[0];
+  assert.equal(resolved.isDuplicate, false);
+  assert.ok(resolved.contradictionCandidate);
+  assert.equal(resolved.contradictionCandidate.id, 'claim-1');
+  assert.equal(resolved.contradictionCandidate.confidence_level, 'высокая');
+});
+
+test('no claim candidate at all: contradictionCandidate is null', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => [0.1, 0.2];
+  const judgeDuplicate = async () => ({ isDuplicate: true });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictionCandidate, null);
+});
+
+test('new (unresolved) entity: contradictionCandidate is null (no existing claims possible)', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => [0.1];
+  const judgeDuplicate = async () => ({ isDuplicate: false });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictionCandidate, null);
+});
+
 test('confidence bump caps at высокая and never decreases', async () => {
   const db = makeFakeDb({
     match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
