@@ -298,3 +298,59 @@ test('a claim with a null claimEmbedding (dedup error-fallback) is skipped for t
   assert.equal(insertedEntities.length, 1, 'entity grouping/creation still happens even when the claim itself is skipped');
   assert.equal(result.status, 'partial');
 });
+
+test('a claim marked hasContradiction inserts a contradictions row after the claim, referencing both claim ids', async () => {
+  const insertedContradictions = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-11' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => {
+      if (state.operation === 'insert') return { data: { id: 'claim-new-1' }, error: null };
+      throw new Error('unexpected claims update in this test');
+    },
+    contradictions: (state) => {
+      insertedContradictions.push(state.payload);
+      return { error: null };
+    }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim({
+      hasContradiction: true,
+      contradictsClaimId: 'claim-existing-1',
+      contradictionRawLabel: 'contradict',
+      contradictionConfidenceLevel: 'высокая',
+      contradictionExplanation: 'разные суммы'
+    })],
+    errors: []
+  };
+
+  await node(state);
+
+  assert.equal(insertedContradictions.length, 1);
+  assert.equal(insertedContradictions[0].claim_a_id, 'claim-new-1');
+  assert.equal(insertedContradictions[0].claim_b_id, 'claim-existing-1');
+  assert.equal(insertedContradictions[0].label, 'contradict');
+  assert.equal(insertedContradictions[0].confidence_level, 'высокая');
+  assert.equal(insertedContradictions[0].explanation, 'разные суммы');
+});
+
+test('a claim without hasContradiction does not touch the contradictions table', async () => {
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-12' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-new-2' }, error: null } : { error: null }),
+    contradictions: () => { throw new Error('should not write to contradictions when hasContradiction is not true'); }
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: [] };
+
+  const result = await node(state);
+
+  assert.equal(result.status, 'ok');
+});

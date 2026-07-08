@@ -89,7 +89,7 @@ export function createPersistResultsNode({ db }) {
 
         const subjectEntityId = claim.subjectEntityId ?? newEntityIds.get(claim.batchEntityKey);
 
-        const { error: claimError } = await db
+        const { data: claimRow, error: claimError } = await db
           .from('claims')
           .insert({
             subject_entity_id: subjectEntityId,
@@ -99,9 +99,26 @@ export function createPersistResultsNode({ db }) {
             confidence_explanation: claim.confidence_explanation,
             source_id: sourceId,
             embedding: claim.claimEmbedding
-          });
+          })
+          .select()
+          .single();
         if (claimError) {
           throw new Error(`persistResults: failed to create claim: ${claimError.message}`);
+        }
+
+        if (claim.hasContradiction) {
+          const { error: contradictionError } = await db
+            .from('contradictions')
+            .insert({
+              claim_a_id: claimRow.id,
+              claim_b_id: claim.contradictsClaimId,
+              label: claim.contradictionRawLabel,
+              confidence_level: claim.contradictionConfidenceLevel,
+              explanation: claim.contradictionExplanation
+            });
+          if (contradictionError) {
+            console.error(`persistResults: failed to record contradiction for claim ${claimRow.id}:`, contradictionError.message);
+          }
         }
       }
 
