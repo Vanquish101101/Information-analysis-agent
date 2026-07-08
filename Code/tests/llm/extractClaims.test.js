@@ -23,37 +23,39 @@ test('throws when apiKey is missing', () => {
   );
 });
 
-test('returns [] without calling fetch when item has no result and no fallback text', async () => {
+test('returns claims: [] and costUsd: 0 without calling fetch when item has no result and no fallback text', async () => {
   const fetchImpl = fakeFetch({});
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 
-  const claims = await extractClaims({ job_id: 'job-1', agent: 1, result: null });
+  const result = await extractClaims({ job_id: 'job-1', agent: 1, result: null });
 
-  assert.deepEqual(claims, []);
+  assert.deepEqual(result.claims, []);
+  assert.equal(result.costUsd, 0);
   assert.equal(fetchImpl.calls.length, 0);
 });
 
 test('uses telegram_text_fallback when result is null but fallback is present', async () => {
   const fetchImpl = fakeFetch({
-    choices: [{ message: { content: '[]' } }]
+    choices: [{ message: { content: '[]' } }],
+    usage: { cost: 0.00012 }
   });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 
-  const claims = await extractClaims({
+  const result = await extractClaims({
     job_id: 'job-2',
     agent: 1,
     result: null,
     telegram_text_fallback: 'только текстовый отчёт'
   });
 
-  assert.deepEqual(claims, []);
+  assert.deepEqual(result.claims, []);
   assert.equal(fetchImpl.calls.length, 1);
   const body = JSON.parse(fetchImpl.calls[0].options.body);
   assert.match(body.messages[0].content, /только текстовый отчёт/);
 });
 
-test('builds the request with the correct URL, model, and headers', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }] });
+test('builds the request with the correct URL, model, headers, and usage:{include:true}', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }], usage: { cost: 0.00005 } });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'secret-key', fetchImpl });
 
   await extractClaims({ job_id: 'job-3', agent: 1, result: { summary: 'тест' } });
@@ -65,10 +67,11 @@ test('builds the request with the correct URL, model, and headers', async () => 
   assert.equal(options.headers['Content-Type'], 'application/json');
   const body = JSON.parse(options.body);
   assert.equal(body.model, 'anthropic/claude-haiku-4-5');
+  assert.deepEqual(body.usage, { include: true });
 });
 
 test('routes through Helicone proxy and adds Helicone-Auth header when heliconeApiKey is set', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }], usage: { cost: 0.00005 } });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'secret-key', heliconeApiKey: 'helicone-key', fetchImpl });
 
   await extractClaims({ job_id: 'job-helicone', agent: 1, result: { summary: 'тест' } });
@@ -78,6 +81,24 @@ test('routes through Helicone proxy and adds Helicone-Auth header when heliconeA
   assert.equal(url, 'https://openrouter.helicone.ai/api/v1/chat/completions');
   assert.equal(options.headers['Authorization'], 'Bearer secret-key');
   assert.equal(options.headers['Helicone-Auth'], 'Bearer helicone-key');
+});
+
+test('returns the real cost from usage.cost', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }], usage: { cost: 0.000029 } });
+  const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
+
+  const result = await extractClaims({ job_id: 'job-cost', agent: 1, result: { summary: 'тест' } });
+
+  assert.equal(result.costUsd, 0.000029);
+});
+
+test('defaults costUsd to 0 when the response has no usage.cost field', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }] });
+  const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
+
+  const result = await extractClaims({ job_id: 'job-nocost', agent: 1, result: { summary: 'тест' } });
+
+  assert.equal(result.costUsd, 0);
 });
 
 test('parses a valid JSON array response into RawClaim objects', async () => {
@@ -94,36 +115,38 @@ test('parses a valid JSON array response into RawClaim objects', async () => {
           }
         ])
       }
-    }]
+    }],
+    usage: { cost: 0.00003 }
   });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 
-  const claims = await extractClaims({ job_id: 'job-4', agent: 1, result: { summary: 'тест' } });
+  const result = await extractClaims({ job_id: 'job-4', agent: 1, result: { summary: 'тест' } });
 
-  assert.equal(claims.length, 1);
-  assert.equal(claims[0].subject, 'Продукт X');
-  assert.equal(claims[0].confidence_level, 'высокая');
+  assert.equal(result.claims.length, 1);
+  assert.equal(result.claims[0].subject, 'Продукт X');
+  assert.equal(result.claims[0].confidence_level, 'высокая');
 });
 
 test('treats a valid empty JSON array response as zero claims, not an error', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '[]' } }], usage: { cost: 0.00001 } });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 
-  const claims = await extractClaims({ job_id: 'job-5', agent: 1, result: { summary: 'ничего нет' } });
+  const result = await extractClaims({ job_id: 'job-5', agent: 1, result: { summary: 'ничего нет' } });
 
-  assert.deepEqual(claims, []);
+  assert.deepEqual(result.claims, []);
 });
 
 test('strips a ```json code fence around the response before parsing', async () => {
   const fetchImpl = fakeFetch({
-    choices: [{ message: { content: '```json\n[{"subject":"A","predicate":"B","object_value":"C","confidence_level":"средняя","confidence_explanation":"D"}]\n```' } }]
+    choices: [{ message: { content: '```json\n[{"subject":"A","predicate":"B","object_value":"C","confidence_level":"средняя","confidence_explanation":"D"}]\n```' } }],
+    usage: { cost: 0.00002 }
   });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 
-  const claims = await extractClaims({ job_id: 'job-6', agent: 1, result: { summary: 'тест' } });
+  const result = await extractClaims({ job_id: 'job-6', agent: 1, result: { summary: 'тест' } });
 
-  assert.equal(claims.length, 1);
-  assert.equal(claims[0].subject, 'A');
+  assert.equal(result.claims.length, 1);
+  assert.equal(result.claims[0].subject, 'A');
 });
 
 test('throws a descriptive error when the LLM response is not valid JSON', async () => {
@@ -152,7 +175,8 @@ test('throws a descriptive error when a claim has an invalid confidence_level', 
       message: {
         content: JSON.stringify([{ subject: 'A', predicate: 'B', object_value: 'C', confidence_level: 'unknown', confidence_explanation: 'D' }])
       }
-    }]
+    }],
+    usage: { cost: 0.00001 }
   });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
 

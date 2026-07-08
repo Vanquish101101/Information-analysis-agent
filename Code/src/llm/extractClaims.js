@@ -1,4 +1,3 @@
-
 const CONFIDENCE_LEVELS = ['высокая', 'средняя', 'низкая'];
 
 export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-haiku-4-5', heliconeApiKey, fetchImpl = fetch } = {}) {
@@ -13,7 +12,7 @@ export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-ha
   return async function extractClaims(item) {
     const text = extractableText(item);
     if (!text) {
-      return [];
+      return { claims: [], costUsd: 0 };
     }
 
     const response = await fetchImpl(url, {
@@ -28,7 +27,8 @@ export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-ha
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: buildPrompt(text) }],
-        max_tokens: 800
+        max_tokens: 800,
+        usage: { include: true }
       })
     });
 
@@ -42,7 +42,7 @@ export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-ha
       throw new Error('extractClaims: LLM returned no content');
     }
 
-    return parseClaims(content);
+    return { claims: parseClaims(content), costUsd: data.usage?.cost ?? 0 };
   };
 }
 
