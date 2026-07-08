@@ -7,7 +7,10 @@
     "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
     "@supabase/supabase-js": "^2.46.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "zod": "^4.4.3"
   }
 }
