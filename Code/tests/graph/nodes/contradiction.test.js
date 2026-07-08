@@ -107,6 +107,24 @@ test('self-consistency majority vote: 2 contradict + 1 agree results in contradi
   assert.equal(result.claims.value[0].contradictionRawLabel, 'contradict');
 });
 
+test('self-consistency: confidence/explanation come from a verdict matching the winning label, not just the first sample', async () => {
+  let call = 0;
+  const responses = [
+    { label: 'agree', confidenceLevel: 'высокая', explanation: 'суммы дополняют друг друга' },
+    { label: 'contradict', confidenceLevel: 'средняя', explanation: 'разные суммы, конфликт' },
+    { label: 'contradict', confidenceLevel: 'средняя', explanation: 'явное противоречие' }
+  ];
+  const judgeContradiction = async () => responses[call++];
+  const node = createContradictionNode({ judgeContradiction });
+
+  const result = await node({ claims: [claim({ contradictionCandidate: candidate({ confidence_level: 'высокая' }) })], errors: [] });
+
+  const resolved = result.claims.value[0];
+  assert.equal(resolved.contradictionRawLabel, 'contradict');
+  assert.equal(resolved.contradictionConfidenceLevel, 'средняя');
+  assert.match(resolved.contradictionExplanation, /конфликт|противоречие/);
+});
+
 test('self-consistency three-way tie (agree/contradict/unclear) resolves to unclear, treated as a contradiction', async () => {
   let call = 0;
   const responses = [

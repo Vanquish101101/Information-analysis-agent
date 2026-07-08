@@ -47,7 +47,7 @@ async function resolveContradiction({ judgeContradiction, claim }) {
     return { ...claim, hasContradiction: false };
   }
 
-  const primary = verdicts[0];
+  const primary = verdicts.find((v) => v.label === rawLabel) ?? verdicts[0];
   return {
     ...claim,
     hasContradiction: true,
