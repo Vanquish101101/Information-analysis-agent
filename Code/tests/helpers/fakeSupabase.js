@@ -50,6 +50,13 @@ export function makeFakeDb(handlers) {
         }
       };
       return builder;
+    },
+    rpc(name, params) {
+      const handler = handlers[name];
+      if (!handler) {
+        throw new Error(`makeFakeDb: no RPC handler registered for "${name}"`);
+      }
+      return Promise.resolve(handler(params));
     }
   };
 }
