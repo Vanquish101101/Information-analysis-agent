@@ -65,3 +65,13 @@ test('regression: DEFAULT_META factory returns fresh array each call (no shared 
   assert.deepEqual(result2.meta.tools_used, [], 'tools_used arrays must not be shared');
   assert.deepEqual(result1.meta.tools_used, ['perplexity'], 'first mutation must be preserved');
 });
+
+test('defaults content_ref to null when missing', () => {
+  const result = normalizeItem({ job_id: 'abc', agent: 1, content_type: 'search' });
+  assert.equal(result.content_ref, null);
+});
+
+test('preserves a provided content_ref as-is', () => {
+  const result = normalizeItem({ job_id: 'abc', agent: 2, content_type: 'video', content_ref: 'https://example.com/video.mp4' });
+  assert.equal(result.content_ref, 'https://example.com/video.mp4');
+});

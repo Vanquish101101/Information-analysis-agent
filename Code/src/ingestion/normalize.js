@@ -26,6 +26,7 @@ export function normalizeItem(item) {
     job_id: item.job_id,
     agent: item.agent,
     content_type: item.content_type ?? 'unknown',
+    content_ref: item.content_ref ?? null,
     result: item.result ?? null,
     confidence: item.confidence?.level ? item.confidence : DEFAULT_CONFIDENCE,
     meta: item.meta ?? defaultMeta(),

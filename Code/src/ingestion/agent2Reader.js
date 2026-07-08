@@ -32,7 +32,7 @@ export async function fetchAgent2Items(db, { limit = 100 } = {}) {
 
     const { data: jobRow } = await db
       .from('parsing_jobs')
-      .select('content_type')
+      .select('content_type, content_ref')
       .eq('id', row.job_id)
       .single();
 
@@ -40,6 +40,7 @@ export async function fetchAgent2Items(db, { limit = 100 } = {}) {
       job_id: row.job_id,
       agent: 2,
       content_type: jobRow?.content_type ?? null,
+      content_ref: jobRow?.content_ref ?? null,
       result: resultRow.result_json ?? null,
       confidence: { level: resultRow.confidence_level, explanation: resultRow.confidence_text },
       created_at: row.created_at

@@ -24,7 +24,7 @@ test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized i
     },
     parsing_jobs: (state) => {
       assert.equal(state.filters.id, 'job-9');
-      return { data: { content_type: 'video' }, error: null };
+      return { data: { content_type: 'video', content_ref: 'https://example.com/video.mp4' }, error: null };
     }
   });
 
@@ -34,6 +34,7 @@ test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized i
   assert.equal(items[0].job_id, 'job-9');
   assert.equal(items[0].agent, 2);
   assert.equal(items[0].content_type, 'video');
+  assert.equal(items[0].content_ref, 'https://example.com/video.mp4');
   assert.deepEqual(items[0].result, { transcript: 'текст видео' });
   assert.equal(items[0].confidence.level, 'средняя');
   assert.equal(items[0].handoff_queue_id, 'hq-1');
