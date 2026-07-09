@@ -53,8 +53,20 @@ test('returns the embedding array on success', async () => {
 
   const result = await embedText('some text');
 
-  assert.equal(result.length, 768);
-  assert.equal(result[0], 0.5);
+  assert.equal(result.embedding.length, 768);
+  assert.equal(result.embedding[0], 0.5);
+});
+
+test('estimates costUsd from text length ($0.15 per 1M tokens, ~4 chars/token)', async () => {
+  const fetchImpl = fakeFetch({ embedding: { values: embeddingOf(768) } });
+  const embedText = createGeminiEmbedder({ apiKey: 'test-key', fetchImpl });
+
+  const text = 'a'.repeat(4000); // ~1000 estimated tokens
+  const result = await embedText(text);
+
+  const expectedTokens = Math.ceil(text.length / 4);
+  const expectedCostUsd = (expectedTokens / 1_000_000) * 0.15;
+  assert.equal(result.costUsd, expectedCostUsd);
 });
 
 test('throws a descriptive error when the HTTP response is not ok', async () => {
