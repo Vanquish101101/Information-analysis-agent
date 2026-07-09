@@ -22,14 +22,14 @@ test('merges agent1 and agent2 items and filters by sinceTimestamp', async () =>
       error: null
     }),
     agent3_handoff_queue: () => ({
-      data: [{ id: 'hq-1', job_id: 'job-mid', result_ref: 'pr-1', attempt_count: 0, status: 'pending', created_at: '2026-07-08T08:10:00Z' }],
+      data: [{ id: 'hq-1', job_id: 'job-mid', result_ref: 'pr-1', attempt_count: 0, status: 'pending' }],
       error: null
     }),
     parsing_results: () => ({
       data: { job_id: 'job-mid', module: 'video-module', result_json: { ok: true }, confidence_level: 'средняя', confidence_text: 'ok' },
       error: null
     }),
-    parsing_jobs: () => ({ data: { content_type: 'video' }, error: null })
+    parsing_jobs: () => ({ data: { content_type: 'video', created_at: '2026-07-08T08:10:00Z' }, error: null })
   });
 
   const { items, newestSeenAt } = await pollQueues(db, { telegramId: 123, sinceTimestamp: '2026-07-08T08:05:00Z' });

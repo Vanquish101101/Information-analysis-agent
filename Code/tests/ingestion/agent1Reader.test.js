@@ -62,6 +62,12 @@ test('returns an empty array when there are no rows', async () => {
   assert.deepEqual(items, []);
 });
 
+test('reads search_results from the intelligence_agent schema, not the client default', async () => {
+  const db = makeFakeDb({ search_results: () => ({ data: [], error: null }) });
+  await fetchAgent1Items(db, { telegramId: 123 });
+  assert.deepEqual(db.schemaCalls, ['intelligence_agent']);
+});
+
 test('throws a descriptive error when the query fails', async () => {
   const db = makeFakeDb({
     search_results: () => ({ data: null, error: { message: 'connection refused' } })

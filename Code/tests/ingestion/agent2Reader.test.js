@@ -6,7 +6,7 @@ import { makeFakeDb } from '../helpers/fakeSupabase.js';
 test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized item', async () => {
   const db = makeFakeDb({
     agent3_handoff_queue: () => ({
-      data: [{ id: 'hq-1', job_id: 'job-9', result_ref: 'pr-1', attempt_count: 0, status: 'pending', created_at: '2026-07-07T09:00:00Z' }],
+      data: [{ id: 'hq-1', job_id: 'job-9', result_ref: 'pr-1', attempt_count: 0, status: 'pending' }],
       error: null
     }),
     parsing_results: (state) => {
@@ -24,7 +24,10 @@ test('joins handoff_queue -> parsing_results -> parsing_jobs into a normalized i
     },
     parsing_jobs: (state) => {
       assert.equal(state.filters.id, 'job-9');
-      return { data: { content_type: 'video', content_ref: 'https://example.com/video.mp4' }, error: null };
+      return {
+        data: { content_type: 'video', content_ref: 'https://example.com/video.mp4', created_at: '2026-07-07T09:00:00Z' },
+        error: null
+      };
     }
   });
 
@@ -85,6 +88,24 @@ test('skips a handoff row when the joined parsing_results lookup errors', async 
   });
   const items = await fetchAgent2Items(db);
   assert.deepEqual(items, []);
+});
+
+test('reads every table from the deep_parsing_agent schema, not the client default', async () => {
+  const db = makeFakeDb({
+    agent3_handoff_queue: () => ({
+      data: [{ id: 'hq-5', job_id: 'job-13', result_ref: 'pr-5', attempt_count: 0, status: 'pending' }],
+      error: null
+    }),
+    parsing_results: () => ({
+      data: { job_id: 'job-13', module: 'text-module', result_json: {}, confidence_level: 'высокая', confidence_text: 'ok' },
+      error: null
+    }),
+    parsing_jobs: () => ({ data: { content_type: 'text' }, error: null })
+  });
+
+  await fetchAgent2Items(db);
+
+  assert.deepEqual(db.schemaCalls, ['deep_parsing_agent', 'deep_parsing_agent', 'deep_parsing_agent']);
 });
 
 test('returns an empty array when the queue is empty', async () => {

@@ -35,7 +35,7 @@ test('within the window with no activity yet, checkOnce polls and returns WAITIN
     search_results: () => ({ data: [], error: null }),
     agent3_handoff_queue: () => ({ data: [], error: null })
   });
-  const db = { from(table) { fromCalls += 1; return baseDb.from(table); } };
+  const db = { schema() { return db; }, from(table) { fromCalls += 1; return baseDb.from(table); } };
   const stateStore = createInMemoryStateStore();
 
   const scheduler = createScheduler({
@@ -200,7 +200,7 @@ test('start() schedules repeated checkOnce polls, stop() halts them', async () =
     search_results: () => ({ data: [], error: null }),
     agent3_handoff_queue: () => ({ data: [], error: null })
   });
-  const db = { from(table) { fromCalls += 1; return baseDb.from(table); } };
+  const db = { schema() { return db; }, from(table) { fromCalls += 1; return baseDb.from(table); } };
   const scheduler = createScheduler({
     db,
     stateStore: createInMemoryStateStore(),

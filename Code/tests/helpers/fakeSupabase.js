@@ -7,8 +7,19 @@
 // resolves to `{ data, error }` without an explicit `.then()` call.
 // `state.operation` ('select' | 'insert' | 'update') and `state.payload` let
 // a test's handler distinguish which operation is in progress.
+// `db.schema(name)` records the requested schema in `db.schemaCalls` and
+// returns the same fake client (tables are looked up by name only, not by
+// schema) — enough for tests to assert the caller requested the right
+// cross-schema client, which is the exact bug this fake exists to catch
+// (see agent1Reader.js/agent2Reader.js: real supabase-js silently resolves
+// .from() against the client's default schema when .schema() is omitted).
 export function makeFakeDb(handlers) {
-  return {
+  const db = {
+    schemaCalls: [],
+    schema(name) {
+      db.schemaCalls.push(name);
+      return db;
+    },
     from(table) {
       const state = { table, filters: {}, operation: 'select', payload: undefined };
       const resolve = () => {
@@ -59,4 +70,5 @@ export function makeFakeDb(handlers) {
       return Promise.resolve(handler(params));
     }
   };
+  return db;
 }
