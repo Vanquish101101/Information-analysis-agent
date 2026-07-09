@@ -5,6 +5,10 @@ function concatReducer(a, b) {
   return a.concat(b);
 }
 
+function sumReducer(a, b) {
+  return a + b;
+}
+
 export const AnalysisState = Annotation.Root({
   items: Annotation(),
   reason: Annotation(),
@@ -17,5 +21,13 @@ export const AnalysisState = Annotation.Root({
   errors: Annotation({
     reducer: concatReducer,
     default: () => []
-  })
+  }),
+  costUsdAnalysis: Annotation({
+    reducer: sumReducer,
+    default: () => 0
+  }),
+  costUsdRetry: Annotation(),
+  escalationsAuto: Annotation(),
+  escalationsPendingUser: Annotation(),
+  costCapReached: Annotation()
 });
