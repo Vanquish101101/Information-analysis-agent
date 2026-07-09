@@ -174,7 +174,8 @@ test('adds the synthesis costUsd on top of the cost persistResults already wrote
 test('a synthesizeDigest failure is caught and logged, does not throw, and skips saving a digest', async () => {
   const db = makeFakeDb({
     claim_source_stats: () => ({ data: [], error: null }),
-    digests: () => { throw new Error('should not be called after synthesizeDigest fails'); }
+    digests: () => { throw new Error('should not be called after synthesizeDigest fails'); },
+    runs: () => ({ error: null })
   });
   const synthesizeDigest = async () => { throw new Error('LLM timeout'); };
   const node = createGlobalSynthesisNode({ db, synthesizeDigest });
@@ -182,6 +183,40 @@ test('a synthesizeDigest failure is caught and logged, does not throw, and skips
   const result = await node(baseState());
 
   assert.deepEqual(result, {});
+});
+
+test('a synthesizeDigest failure still adds any already-incurred costUsd (attached to the error) to runs', async () => {
+  let runUpdatePayload = null;
+  const db = makeFakeDb({
+    claim_source_stats: () => ({ data: [], error: null }),
+    runs: (state) => { runUpdatePayload = state.payload; return { error: null }; }
+  });
+  const synthesizeDigest = async () => {
+    const err = new Error('LLM returned invalid JSON');
+    err.costUsd = 0.0004;
+    throw err;
+  };
+  const node = createGlobalSynthesisNode({ db, synthesizeDigest });
+
+  await node(baseState({ costUsdAnalysis: 0.03, costUsdRetry: 0.02 }));
+
+  assert.equal(runUpdatePayload.cost_usd, 0.03 + 0.02 + 0.0004);
+  assert.equal(runUpdatePayload.cost_usd_analysis, 0.03 + 0.0004);
+});
+
+test('a synthesizeDigest failure with no err.costUsd (e.g. HTTP error before any cost was incurred) adds 0, not undefined', async () => {
+  let runUpdatePayload = null;
+  const db = makeFakeDb({
+    claim_source_stats: () => ({ data: [], error: null }),
+    runs: (state) => { runUpdatePayload = state.payload; return { error: null }; }
+  });
+  const synthesizeDigest = async () => { throw new Error('LLM HTTP 500'); };
+  const node = createGlobalSynthesisNode({ db, synthesizeDigest });
+
+  await node(baseState({ costUsdAnalysis: 0.03, costUsdRetry: 0.02 }));
+
+  assert.equal(runUpdatePayload.cost_usd, 0.03 + 0.02);
+  assert.equal(runUpdatePayload.cost_usd_analysis, 0.03);
 });
 
 test('a claim_source_stats RPC failure is caught and logged, does not throw', async () => {
@@ -196,18 +231,19 @@ test('a claim_source_stats RPC failure is caught and logged, does not throw', as
   assert.deepEqual(result, {});
 });
 
-test('a digests insert failure is caught and logged, does not throw, and skips the runs cost update', async () => {
-  let runsUpdateCalled = false;
+test('a digests insert failure is caught and logged, does not throw, but still adds the already-incurred synthesis cost to runs', async () => {
+  let runUpdatePayload = null;
   const db = makeFakeDb({
     claim_source_stats: () => ({ data: [], error: null }),
     digests: () => ({ error: { message: 'constraint violation' } }),
-    runs: () => { runsUpdateCalled = true; return { error: null }; }
+    runs: (state) => { runUpdatePayload = state.payload; return { error: null }; }
   });
   const synthesizeDigest = async () => ({ statements: [{ claimId: 'claim-1', statement: 'ok' }], costUsd: 0.0005 });
   const node = createGlobalSynthesisNode({ db, synthesizeDigest });
 
-  const result = await node(baseState());
+  const result = await node(baseState({ costUsdAnalysis: 0.03, costUsdRetry: 0.02 }));
 
   assert.deepEqual(result, {});
-  assert.equal(runsUpdateCalled, false);
+  assert.equal(runUpdatePayload.cost_usd, 0.03 + 0.02 + 0.0005);
+  assert.equal(runUpdatePayload.cost_usd_analysis, 0.03 + 0.0005);
 });

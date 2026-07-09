@@ -18,6 +18,9 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
     }
     const statsByClaimId = new Map((statsRows ?? []).map((row) => [row.claim_id, row]));
 
+    const costUsdAnalysis = state.costUsdAnalysis ?? 0;
+    const costUsdRetry = state.costUsdRetry ?? 0;
+
     let statements;
     let synthesisCostUsd;
     try {
@@ -26,6 +29,12 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
       synthesisCostUsd = result.costUsd;
     } catch (err) {
       console.error('globalSynthesis: synthesizeDigest failed:', err.message);
+      // err.costUsd — деньги, уже реально списанные OpenRouter'ом до сбоя
+      // (synthesizeDigest прикрепляет её к ошибке, если HTTP прошёл, но
+      // парсинг ответа модели упал) — тот же паттерн, что у остальных
+      // LLM-файлов проекта. Без этого UPDATE реально потраченная сумма
+      // никогда не попала бы в runs.cost_usd.
+      await addSynthesisCostToRun(db, state.runId, costUsdAnalysis, costUsdRetry, err.costUsd ?? 0);
       return {};
     }
     const statementByClaimId = new Map(statements.map((s) => [s.claimId, s.statement]));
@@ -50,8 +59,6 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
       explanation: c.explanation
     }));
 
-    const costUsdAnalysis = state.costUsdAnalysis ?? 0;
-    const costUsdRetry = state.costUsdRetry ?? 0;
     const meta = {
       items_processed: state.items.length,
       escalations_auto: state.escalationsAuto ?? 0,
@@ -71,6 +78,10 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
     });
     if (digestError) {
       console.error('globalSynthesis: failed to save digest:', digestError.message);
+      // synthesizeDigest уже отработал и реально стоил денег (synthesisCostUsd)
+      // — эта стоимость не должна теряться только из-за того, что сам
+      // дайджест не удалось сохранить.
+      await addSynthesisCostToRun(db, state.runId, costUsdAnalysis, costUsdRetry, synthesisCostUsd);
       return {};
     }
 
@@ -78,17 +89,21 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
     // того, как этот узел вообще запустился — стоимость самого синтеза
     // добавляется отдельным маленьким UPDATE поверх уже записанного, а не
     // переделкой уже проверенной логики persistResults.
-    const { error: costUpdateError } = await db
-      .from('runs')
-      .update({
-        cost_usd: costUsdAnalysis + costUsdRetry + synthesisCostUsd,
-        cost_usd_analysis: costUsdAnalysis + synthesisCostUsd
-      })
-      .eq('id', state.runId);
-    if (costUpdateError) {
-      console.error('globalSynthesis: failed to add synthesis cost to run:', costUpdateError.message);
-    }
+    await addSynthesisCostToRun(db, state.runId, costUsdAnalysis, costUsdRetry, synthesisCostUsd);
 
     return {};
   };
+}
+
+async function addSynthesisCostToRun(db, runId, costUsdAnalysis, costUsdRetry, synthesisCostUsd) {
+  const { error } = await db
+    .from('runs')
+    .update({
+      cost_usd: costUsdAnalysis + costUsdRetry + synthesisCostUsd,
+      cost_usd_analysis: costUsdAnalysis + synthesisCostUsd
+    })
+    .eq('id', runId);
+  if (error) {
+    console.error('globalSynthesis: failed to add synthesis cost to run:', error.message);
+  }
 }
