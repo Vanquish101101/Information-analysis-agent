@@ -94,3 +94,38 @@ test('throws a descriptive error when the response has no text content', async (
     /empty response/
   );
 });
+
+test('throws a descriptive error when Agent 2 queues the job instead of returning a synchronous result (mode: deep is always a heavy task)', async () => {
+  const { ClientImpl, TransportImpl, calls } = fakeClientClasses({ status: 'queued', job_id: 'job-async-1' });
+  const retryParse = createDeepParsingClient({ baseUrl: 'http://deep-parsing-agent:7301', ClientImpl, TransportImpl });
+
+  await assert.rejects(
+    () => retryParse({ contentRef: 'https://example.com/video.mp4', contentType: 'video' }),
+    /queued|async/
+  );
+  assert.equal(calls.close, 1, 'client is still closed even when the response is rejected as queued');
+});
+
+test('throws a descriptive error when the response is missing result or confidence (not the expected synchronous shape)', async () => {
+  const { ClientImpl, TransportImpl } = fakeClientClasses({ result: { transcript: 'x' } }); // no confidence field
+  const retryParse = createDeepParsingClient({ baseUrl: 'http://deep-parsing-agent:7301', ClientImpl, TransportImpl });
+
+  await assert.rejects(
+    () => retryParse({ contentRef: 'x', contentType: 'video' }),
+    /queued|async/
+  );
+});
+
+test('closes the client even when connect() itself throws', async () => {
+  const calls = { close: 0 };
+  class FakeTransport { constructor() {} }
+  class FakeClient {
+    async connect() { throw new Error('connection refused'); }
+    async callTool() { throw new Error('should not be called'); }
+    async close() { calls.close += 1; }
+  }
+  const retryParse = createDeepParsingClient({ baseUrl: 'http://deep-parsing-agent:7301', ClientImpl: FakeClient, TransportImpl: FakeTransport });
+
+  await assert.rejects(() => retryParse({ contentRef: 'x', contentType: 'video' }), /connection refused/);
+  assert.equal(calls.close, 1);
+});

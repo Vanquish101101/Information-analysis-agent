@@ -41,3 +41,16 @@ test('isolates a failure: returns errors, not claims, and does not throw', async
   assert.equal(result.claims, undefined);
   assert.equal(result.costUsdAnalysis, undefined);
 });
+
+test('a failure that already incurred real cost (err.costUsd set) still contributes that cost, not undefined', async () => {
+  const fakeExtract = async () => {
+    const err = new Error('LLM returned invalid JSON');
+    err.costUsd = 0.00007;
+    throw err;
+  };
+  const node = createExtractClaimsNode(fakeExtract);
+
+  const result = await node({ item: { job_id: 'job-4', agent: 1, content_type: 'search' } });
+
+  assert.equal(result.costUsdAnalysis, 0.00007);
+});

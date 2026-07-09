@@ -8,7 +8,15 @@ export function createExtractClaimsNode(extractClaims) {
       }));
       return { claims, costUsdAnalysis: costUsd };
     } catch (err) {
-      return { errors: [`item ${item.job_id}: ${err.message}`] };
+      // err.costUsd — стоимость, уже реально потраченная до сбоя (extractClaims
+      // прикрепляет её к ошибке, если HTTP прошёл, но парсинг ответа модели
+      // упал). costUsdAnalysis — sum-reducer канал: ключ должен полностью
+      // отсутствовать в обновлении, если вклада нет, иначе передача
+      // costUsdAnalysis: undefined в reducer даст NaN.
+      return {
+        errors: [`item ${item.job_id}: ${err.message}`],
+        ...(err.costUsd ? { costUsdAnalysis: err.costUsd } : {})
+      };
     }
   };
 }

@@ -42,7 +42,17 @@ export function createOpenRouterExtractor({ apiKey, model = 'anthropic/claude-ha
       throw new Error('extractClaims: LLM returned no content');
     }
 
-    return { claims: parseClaims(content), costUsd: data.usage?.cost ?? 0 };
+    // usage.cost — реальные деньги, уже потраченные к этому моменту (HTTP-
+    // вызов прошёл успешно). Если parseClaims бросит исключение из-за
+    // некорректного JSON от модели, эта стоимость всё равно должна дойти до
+    // вызывающего кода, а не потеряться вместе с исключением.
+    const costUsd = data.usage?.cost ?? 0;
+    try {
+      return { claims: parseClaims(content), costUsd };
+    } catch (err) {
+      err.costUsd = costUsd;
+      throw err;
+    }
   };
 }
 

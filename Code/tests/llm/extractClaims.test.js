@@ -159,6 +159,18 @@ test('throws a descriptive error when the LLM response is not valid JSON', async
   );
 });
 
+test('attaches the real already-incurred costUsd to the thrown error when parsing fails after a successful paid HTTP call', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: 'это не JSON вообще' } }], usage: { cost: 0.00006 } });
+  const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });
+
+  try {
+    await extractClaims({ job_id: 'job-cost-fail', agent: 1, result: { summary: 'тест' } });
+    assert.fail('expected extractClaims to throw');
+  } catch (err) {
+    assert.equal(err.costUsd, 0.00006);
+  }
+});
+
 test('throws a descriptive error when the HTTP response is not ok', async () => {
   const fetchImpl = fakeFetch({}, { ok: false, status: 429 });
   const extractClaims = createOpenRouterExtractor({ apiKey: 'test-key', fetchImpl });

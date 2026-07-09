@@ -35,7 +35,17 @@ export function createDuplicateJudge({ apiKey, model = 'anthropic/claude-haiku-4
       throw new Error('judgeDuplicate: LLM returned no content');
     }
 
-    return { ...parseVerdict(content), costUsd: data.usage?.cost ?? 0 };
+    // usage.cost — реальные деньги, уже потраченные к этому моменту (HTTP-
+    // вызов прошёл успешно). Если parseVerdict бросит исключение из-за
+    // некорректного JSON от модели, эта стоимость всё равно должна дойти до
+    // вызывающего кода, а не потеряться вместе с исключением.
+    const costUsd = data.usage?.cost ?? 0;
+    try {
+      return { ...parseVerdict(content), costUsd };
+    } catch (err) {
+      err.costUsd = costUsd;
+      throw err;
+    }
   };
 }
 

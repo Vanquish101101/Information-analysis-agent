@@ -16,13 +16,19 @@ export function createContradictionNode({ judgeContradiction }) {
         continue;
       }
 
+      // costTracker переживает исключение из resolveContradiction: если
+      // самоконсистентность делает 3 сэмпла и первый успел стоить денег,
+      // а второй бросил исключение, уже понесённая стоимость первого всё
+      // равно попадёт в costUsdAnalysis через finally, а не потеряется.
+      const costTracker = { value: 0 };
       try {
-        const { resolvedClaim, costUsd } = await resolveContradiction({ judgeContradiction, claim });
+        const resolvedClaim = await resolveContradiction({ judgeContradiction, claim, costTracker });
         resolvedClaims.push(resolvedClaim);
-        costUsdAnalysis += costUsd;
       } catch (err) {
         newErrors.push(`contradiction check failed for claim subject "${claim.subject}": ${err.message}`);
         resolvedClaims.push({ ...claim, hasContradiction: false });
+      } finally {
+        costUsdAnalysis += costTracker.value;
       }
     }
 
@@ -34,37 +40,40 @@ export function createContradictionNode({ judgeContradiction }) {
   };
 }
 
-async function resolveContradiction({ judgeContradiction, claim }) {
+async function resolveContradiction({ judgeContradiction, claim, costTracker }) {
   const candidate = claim.contradictionCandidate;
   const newClaimText = buildClaimText(claim);
   const existingClaimText = `${candidate.predicate}: ${candidate.object_value ?? ''}`;
 
   const sampleCount = candidate.confidence_level === HIGH_CONFIDENCE ? SELF_CONSISTENCY_SAMPLES : 1;
   const verdicts = [];
-  let costUsd = 0;
   for (let i = 0; i < sampleCount; i += 1) {
-    const verdict = await judgeContradiction({ newClaimText, existingClaimText });
-    verdicts.push(verdict);
-    costUsd += verdict.costUsd;
+    try {
+      const verdict = await judgeContradiction({ newClaimText, existingClaimText });
+      verdicts.push(verdict);
+      costTracker.value += verdict.costUsd;
+    } catch (err) {
+      // judgeContradiction прикрепляет costUsd к ошибке, если OpenRouter уже
+      // списал деньги за этот сэмпл до того, как парсинг ответа модели упал.
+      costTracker.value += err.costUsd ?? 0;
+      throw err;
+    }
   }
 
   const rawLabel = majorityLabel(verdicts.map((v) => v.label));
 
   if (rawLabel === 'agree') {
-    return { resolvedClaim: { ...claim, hasContradiction: false }, costUsd };
+    return { ...claim, hasContradiction: false };
   }
 
   const primary = verdicts.find((v) => v.label === rawLabel) ?? verdicts[0];
   return {
-    costUsd,
-    resolvedClaim: {
-      ...claim,
-      hasContradiction: true,
-      contradictsClaimId: candidate.id,
-      contradictionRawLabel: rawLabel,
-      contradictionConfidenceLevel: primary.confidenceLevel,
-      contradictionExplanation: primary.explanation
-    }
+    ...claim,
+    hasContradiction: true,
+    contradictsClaimId: candidate.id,
+    contradictionRawLabel: rawLabel,
+    contradictionConfidenceLevel: primary.confidenceLevel,
+    contradictionExplanation: primary.explanation
   };
 }
 

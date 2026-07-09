@@ -238,3 +238,18 @@ test('a failed embedText call contributes 0 cost for that claim (does not crash 
 
   assert.equal(result.costUsdAnalysis, 0);
 });
+
+test('a failure partway through resolution (after embedText already succeeded) still counts the cost already incurred', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0.01 });
+  const judgeDuplicate = async () => { throw new Error('LLM timeout'); };
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.costUsdAnalysis, 0.01); // subject embedding cost was incurred before the entity judge call threw
+});

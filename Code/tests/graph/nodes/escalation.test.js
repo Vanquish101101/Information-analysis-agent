@@ -53,6 +53,18 @@ test('estimated retry cost above $0.10 escalates without attempting retry', asyn
   assert.equal(inserted[0].estimated_cost_usd, 0.15);
 });
 
+test('an unrecognized content_type escalates without attempting retry (no default cheap fallback)', async () => {
+  const inserted = [];
+  const db = makeFakeDb({ pending_user_decisions: (state) => { inserted.push(state.payload); return { error: null }; } });
+  const retryParse = async () => { throw new Error('should not be called'); };
+  const node = createEscalationNode({ db, retryParse });
+
+  const result = await node({ items: [item({ content_type: 'unknown' })] });
+
+  assert.equal(result.escalationsPendingUser, 1);
+  assert.match(inserted[0].question, /Неизвестный content_type/);
+});
+
 test('estimated retry cost at or below $0.10 attempts a real retry', async () => {
   const db = makeFakeDb({});
   const retryParse = async ({ contentRef, contentType }) => {

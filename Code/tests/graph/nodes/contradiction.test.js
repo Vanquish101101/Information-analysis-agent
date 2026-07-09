@@ -183,3 +183,20 @@ test('a judge failure contributes 0 cost for that claim', async () => {
 
   assert.equal(result.costUsdAnalysis, 0);
 });
+
+test('a self-consistency failure partway through still counts the cost of samples already completed', async () => {
+  let call = 0;
+  const judgeContradiction = async () => {
+    if (call === 0) {
+      call += 1;
+      return { label: 'contradict', confidenceLevel: 'высокая', explanation: 'a', costUsd: 0.01 };
+    }
+    throw new Error('LLM timeout');
+  };
+  const node = createContradictionNode({ judgeContradiction });
+
+  const result = await node({ claims: [claim({ contradictionCandidate: candidate({ confidence_level: 'высокая' }) })], errors: [] });
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.costUsdAnalysis, 0.01); // first of 3 self-consistency samples succeeded before the second threw
+});

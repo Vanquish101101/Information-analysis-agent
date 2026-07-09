@@ -97,6 +97,18 @@ test('throws a descriptive error when the LLM response is not valid JSON', async
   await assert.rejects(() => judgeDuplicate({ kind: 'entity', new: 'X', candidate: 'Y' }), /invalid JSON/);
 });
 
+test('attaches the real already-incurred costUsd to the thrown error when parsing fails after a successful paid HTTP call', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: 'не JSON' } }], usage: { cost: 0.00003 } });
+  const judgeDuplicate = createDuplicateJudge({ apiKey: 'test-key', fetchImpl });
+
+  try {
+    await judgeDuplicate({ kind: 'entity', new: 'X', candidate: 'Y' });
+    assert.fail('expected judgeDuplicate to throw');
+  } catch (err) {
+    assert.equal(err.costUsd, 0.00003);
+  }
+});
+
 test('throws a descriptive error when the HTTP response is not ok', async () => {
   const fetchImpl = fakeFetch({}, { ok: false, status: 500 });
   const judgeDuplicate = createDuplicateJudge({ apiKey: 'test-key', fetchImpl });

@@ -107,6 +107,18 @@ test('throws a descriptive error when the LLM response is not valid JSON', async
   await assert.rejects(() => judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' }), /invalid JSON/);
 });
 
+test('attaches the real already-incurred costUsd to the thrown error when parsing fails after a successful paid HTTP call', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: 'не JSON' } }], usage: { cost: 0.00004 } });
+  const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
+
+  try {
+    await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
+    assert.fail('expected judgeContradiction to throw');
+  } catch (err) {
+    assert.equal(err.costUsd, 0.00004);
+  }
+});
+
 test('throws a descriptive error when the HTTP response is not ok', async () => {
   const fetchImpl = fakeFetch({}, { ok: false, status: 500 });
   const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });

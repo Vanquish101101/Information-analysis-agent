@@ -45,7 +45,19 @@ export function createEscalationNode({ db, retryParse }) {
         continue;
       }
 
-      const estimatedCost = CONTENT_TYPE_RETRY_COST_ESTIMATES[item.content_type] ?? RETRY_COST_THRESHOLD_USD;
+      // Неизвестный/отсутствующий content_type не должен молча считаться
+      // "достаточно дешёвым" — без оценки в таблице автоповтор не делаем,
+      // эскалируем явно, а не подставляем произвольное значение по умолчанию.
+      const estimatedCost = CONTENT_TYPE_RETRY_COST_ESTIMATES[item.content_type];
+      if (estimatedCost === undefined) {
+        pendingDecisions.push(buildPendingDecision(
+          item,
+          `Неизвестный content_type "${item.content_type}" — оценка стоимости повтора недоступна`
+        ));
+        escalationsPendingUser += 1;
+        resolvedItems.push(item);
+        continue;
+      }
       if (estimatedCost > RETRY_COST_THRESHOLD_USD) {
         pendingDecisions.push(buildPendingDecision(
           item,

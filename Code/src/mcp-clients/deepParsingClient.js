@@ -18,8 +18,8 @@ export function createDeepParsingClient({ baseUrl, ClientImpl = Client, Transpor
       { capabilities: {} }
     );
 
-    await client.connect(transport);
     try {
+      await client.connect(transport);
       const response = await client.callTool({
         name: 'deepparsing_parse',
         arguments: { content_ref: contentRef, content_type: contentType, mode: 'deep' }
@@ -29,7 +29,23 @@ export function createDeepParsingClient({ baseUrl, ClientImpl = Client, Transpor
       if (!text) {
         throw new Error('deepParsingClient: empty response from deepparsing_parse');
       }
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+
+      // Агент 2 всегда обрабатывает mode: 'deep' как тяжёлую задачу
+      // (isHeavyTask возвращает true безусловно для mode === 'deep' —
+      // проверено чтением его queue/index.js) и, если результата нет в кэше,
+      // ставит её в очередь асинхронно вместо синхронного ответа: тогда
+      // deepparsing_parse возвращает {status: 'queued', job_id}, а не
+      // {result, confidence, meta}. Синхронное ожидание/поллинг
+      // deepparsing_status здесь пока не реализованы — до этого момента
+      // такой ответ должен считаться неудачным повтором (эскалация в
+      // pending_user_decisions с исходными данными item'а), а не тихо
+      // приниматься как успех с result/confidence === undefined.
+      if (parsed.status === 'queued' || !parsed.result || !parsed.confidence) {
+        throw new Error(`deepParsingClient: retry did not complete synchronously (Agent 2 queued it for async processing instead of returning a result immediately, job_id: ${parsed.job_id ?? 'unknown'}) — synchronous auto-retry is not yet supported for queued jobs`);
+      }
+
+      return parsed;
     } finally {
       await client.close();
     }
