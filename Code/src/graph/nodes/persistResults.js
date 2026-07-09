@@ -122,8 +122,18 @@ export function createPersistResultsNode({ db }) {
         }
       }
 
-      const finalStatus = state.errors.length > 0 ? 'partial' : 'ok';
-      const { error: statusUpdateError } = await db.from('runs').update({ status: finalStatus }).eq('id', runId);
+      const finalStatus = state.costCapReached ? 'cost_cap_reached' : (state.errors.length > 0 ? 'partial' : 'ok');
+      const { error: statusUpdateError } = await db
+        .from('runs')
+        .update({
+          status: finalStatus,
+          cost_usd: (state.costUsdAnalysis ?? 0) + (state.costUsdRetry ?? 0),
+          cost_usd_analysis: state.costUsdAnalysis ?? 0,
+          cost_usd_retry: state.costUsdRetry ?? 0,
+          escalations_auto: state.escalationsAuto ?? 0,
+          escalations_pending_user: state.escalationsPendingUser ?? 0
+        })
+        .eq('id', runId);
       if (statusUpdateError) {
         console.error(`persistResults: failed to update run status to "${finalStatus}":`, statusUpdateError.message);
       }

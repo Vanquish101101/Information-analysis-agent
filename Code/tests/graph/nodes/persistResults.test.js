@@ -354,3 +354,99 @@ test('a claim without hasContradiction does not touch the contradictions table',
 
   assert.equal(result.status, 'ok');
 });
+
+test('writes cost_usd/cost_usd_analysis/cost_usd_retry/escalations_auto/escalations_pending_user on the final status update', async () => {
+  let runUpdatePayload = null;
+  const db = makeFakeDb({
+    runs: (state) => {
+      if (state.operation === 'insert') return { data: { id: 'run-13' }, error: null };
+      runUpdatePayload = state.payload;
+      return { error: null };
+    },
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim()],
+    errors: [],
+    costUsdAnalysis: 0.03,
+    costUsdRetry: 0.02,
+    escalationsAuto: 2,
+    escalationsPendingUser: 1
+  };
+
+  await node(state);
+
+  assert.equal(runUpdatePayload.cost_usd, 0.05);
+  assert.equal(runUpdatePayload.cost_usd_analysis, 0.03);
+  assert.equal(runUpdatePayload.cost_usd_retry, 0.02);
+  assert.equal(runUpdatePayload.escalations_auto, 2);
+  assert.equal(runUpdatePayload.escalations_pending_user, 1);
+});
+
+test('defaults cost/escalation fields to 0 when the state does not set them (backward compatible with pre-escalation runs)', async () => {
+  let runUpdatePayload = null;
+  const db = makeFakeDb({
+    runs: (state) => {
+      if (state.operation === 'insert') return { data: { id: 'run-14' }, error: null };
+      runUpdatePayload = state.payload;
+      return { error: null };
+    },
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: [] };
+
+  await node(state);
+
+  assert.equal(runUpdatePayload.cost_usd, 0);
+  assert.equal(runUpdatePayload.cost_usd_analysis, 0);
+  assert.equal(runUpdatePayload.cost_usd_retry, 0);
+  assert.equal(runUpdatePayload.escalations_auto, 0);
+  assert.equal(runUpdatePayload.escalations_pending_user, 0);
+});
+
+test('status is cost_cap_reached when state.costCapReached is true, overriding ok/partial', async () => {
+  let runUpdatePayload = null;
+  const db = makeFakeDb({
+    runs: (state) => {
+      if (state.operation === 'insert') return { data: { id: 'run-15' }, error: null };
+      runUpdatePayload = state.payload;
+      return { error: null };
+    },
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: [], costCapReached: true };
+
+  const result = await node(state);
+
+  assert.equal(result.status, 'cost_cap_reached');
+  assert.equal(runUpdatePayload.status, 'cost_cap_reached');
+});
+
+test('status is still partial (not cost_cap_reached) when costCapReached is false but there are errors', async () => {
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-16' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: ['some error'], costCapReached: false };
+
+  const result = await node(state);
+
+  assert.equal(result.status, 'partial');
+});
