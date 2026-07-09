@@ -1,6 +1,7 @@
 // src/graph/index.js
 import { StateGraph, START, END } from '@langchain/langgraph';
 import { AnalysisState } from './state.js';
+import { createEscalationNode } from './nodes/escalation.js';
 import { dispatchToExtraction } from './nodes/dispatcher.js';
 import { createExtractClaimsNode } from './nodes/extractClaims.js';
 import { reducerNode } from './nodes/reducer.js';
@@ -8,7 +9,7 @@ import { createDedupNode } from './nodes/dedup.js';
 import { createContradictionNode } from './nodes/contradiction.js';
 import { createPersistResultsNode } from './nodes/persistResults.js';
 
-export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction } = {}) {
+export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse } = {}) {
   if (!db) {
     throw new Error('createAnalysisGraph: db is required');
   }
@@ -24,19 +25,25 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
   if (typeof judgeContradiction !== 'function') {
     throw new Error('createAnalysisGraph: judgeContradiction must be a function');
   }
+  if (typeof retryParse !== 'function') {
+    throw new Error('createAnalysisGraph: retryParse must be a function');
+  }
 
+  const escalationNode = createEscalationNode({ db, retryParse });
   const extractClaimsNode = createExtractClaimsNode(extractClaims);
   const dedupNode = createDedupNode({ db, embedText, judgeDuplicate });
   const contradictionNode = createContradictionNode({ judgeContradiction });
   const persistResultsNode = createPersistResultsNode({ db });
 
   const compiledGraph = new StateGraph(AnalysisState)
+    .addNode('escalation', escalationNode)
     .addNode('extractClaims', extractClaimsNode)
     .addNode('reducer', reducerNode)
     .addNode('dedup', dedupNode)
     .addNode('contradiction', contradictionNode)
     .addNode('persistResults', persistResultsNode)
-    .addConditionalEdges(START, dispatchToExtraction)
+    .addEdge(START, 'escalation')
+    .addConditionalEdges('escalation', dispatchToExtraction)
     .addEdge('extractClaims', 'reducer')
     .addEdge('reducer', 'dedup')
     .addEdge('dedup', 'contradiction')
