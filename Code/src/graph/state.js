@@ -29,5 +29,7 @@ export const AnalysisState = Annotation.Root({
   costUsdRetry: Annotation(),
   escalationsAuto: Annotation(),
   escalationsPendingUser: Annotation(),
-  costCapReached: Annotation()
+  costCapReached: Annotation(),
+  persistedFacts: Annotation(),
+  persistedContradictions: Annotation()
 });
