@@ -9,8 +9,9 @@ import { createDedupNode } from './nodes/dedup.js';
 import { createContradictionNode } from './nodes/contradiction.js';
 import { createPersistResultsNode } from './nodes/persistResults.js';
 import { createGlobalSynthesisNode } from './nodes/globalSynthesis.js';
+import { createNotificationsNode } from './nodes/notifications.js';
 
-export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse, synthesizeDigest } = {}) {
+export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse, synthesizeDigest, sendNotification } = {}) {
   if (!db) {
     throw new Error('createAnalysisGraph: db is required');
   }
@@ -32,6 +33,9 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
   if (typeof synthesizeDigest !== 'function') {
     throw new Error('createAnalysisGraph: synthesizeDigest must be a function');
   }
+  if (typeof sendNotification !== 'function') {
+    throw new Error('createAnalysisGraph: sendNotification must be a function');
+  }
 
   const escalationNode = createEscalationNode({ db, retryParse });
   const extractClaimsNode = createExtractClaimsNode(extractClaims);
@@ -39,6 +43,7 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
   const contradictionNode = createContradictionNode({ judgeContradiction });
   const persistResultsNode = createPersistResultsNode({ db });
   const globalSynthesisNode = createGlobalSynthesisNode({ db, synthesizeDigest });
+  const notificationsNode = createNotificationsNode({ sendNotification });
 
   const compiledGraph = new StateGraph(AnalysisState)
     .addNode('escalation', escalationNode)
@@ -48,6 +53,7 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
     .addNode('contradiction', contradictionNode)
     .addNode('persistResults', persistResultsNode)
     .addNode('globalSynthesis', globalSynthesisNode)
+    .addNode('notifications', notificationsNode)
     .addEdge(START, 'escalation')
     .addConditionalEdges('escalation', dispatchToExtraction)
     .addEdge('extractClaims', 'reducer')
@@ -55,7 +61,8 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
     .addEdge('dedup', 'contradiction')
     .addEdge('contradiction', 'persistResults')
     .addEdge('persistResults', 'globalSynthesis')
-    .addEdge('globalSynthesis', END)
+    .addEdge('globalSynthesis', 'notifications')
+    .addEdge('notifications', END)
     .compile();
 
   return async function runAnalysis(items, { reason } = {}) {
