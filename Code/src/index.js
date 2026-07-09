@@ -10,6 +10,7 @@ import { createGlobalSynthesisJudge } from './llm/globalSynthesis.js';
 import { createRedisStateStore } from './scheduler/redisStateStore.js';
 import { createAnalysisGraph } from './graph/index.js';
 import { createScheduler } from './scheduler/index.js';
+import { createMcpHttpServer } from './mcp-server/http.js';
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -55,6 +56,12 @@ function requireEnv(name) {
     stateStore,
     onBatchReady: runAnalysis,
     telegramId
+  });
+
+  const mcpPort = Number(process.env.MCP_HTTP_PORT ?? 7302);
+  const mcpHttpServer = createMcpHttpServer({ db, port: mcpPort });
+  mcpHttpServer.listen(mcpPort, () => {
+    console.log(`Information Analysis Agent: MCP server listening on http://0.0.0.0:${mcpPort}/mcp`);
   });
 
   console.log(`Information Analysis Agent: scheduler starting, polling every ${POLL_INTERVAL_MS}ms`);
