@@ -200,3 +200,30 @@ test('a self-consistency failure partway through still counts the cost of sample
   assert.equal(result.errors.length, 1);
   assert.equal(result.costUsdAnalysis, 0.01); // first of 3 self-consistency samples succeeded before the second threw
 });
+
+test('a contradict verdict against a HIGH-confidence historical candidate includes contradictedClaimHistoricalConfidence: высокая', async () => {
+  const judgeContradiction = async () => ({ label: 'contradict', confidenceLevel: 'высокая', explanation: 'разные суммы', costUsd: 0.01 });
+  const node = createContradictionNode({ judgeContradiction });
+
+  const result = await node({ claims: [claim({ contradictionCandidate: candidate({ confidence_level: 'высокая' }) })], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictedClaimHistoricalConfidence, 'высокая');
+});
+
+test('a contradict verdict against a MEDIUM-confidence historical candidate includes contradictedClaimHistoricalConfidence: средняя, not always высокая', async () => {
+  const judgeContradiction = async () => ({ label: 'contradict', confidenceLevel: 'средняя', explanation: 'разные суммы', costUsd: 0.01 });
+  const node = createContradictionNode({ judgeContradiction });
+
+  const result = await node({ claims: [claim({ contradictionCandidate: candidate({ confidence_level: 'средняя' }) })], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictedClaimHistoricalConfidence, 'средняя');
+});
+
+test('an agree verdict does not set contradictedClaimHistoricalConfidence (no contradiction to report)', async () => {
+  const judgeContradiction = async () => ({ label: 'agree', confidenceLevel: 'высокая', explanation: 'совместимо', costUsd: 0.01 });
+  const node = createContradictionNode({ judgeContradiction });
+
+  const result = await node({ claims: [claim({ contradictionCandidate: candidate({ confidence_level: 'высокая' }) })], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictedClaimHistoricalConfidence, undefined);
+});

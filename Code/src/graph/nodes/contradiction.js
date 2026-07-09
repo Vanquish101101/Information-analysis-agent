@@ -73,7 +73,8 @@ async function resolveContradiction({ judgeContradiction, claim, costTracker }) 
     contradictsClaimId: candidate.id,
     contradictionRawLabel: rawLabel,
     contradictionConfidenceLevel: primary.confidenceLevel,
-    contradictionExplanation: primary.explanation
+    contradictionExplanation: primary.explanation,
+    contradictedClaimHistoricalConfidence: candidate.confidence_level
   };
 }
 
