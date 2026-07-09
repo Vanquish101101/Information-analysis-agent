@@ -11,6 +11,19 @@ function defaultMeta() {
   };
 }
 
+// Best-effort: сырые числа охвата (views/likes) сейчас реально есть только у
+// YouTube-результатов Агента 1 (Code/src/agents/scout/index.js собирает их
+// как views/likes уже в этом виде, Code/src/orchestrator/index.js кладёт
+// массив в result.raw.youtube). Для всего остального (Firecrawl-текст,
+// любой content_type Агента 2) таких чисел просто нет — 0, не оценка "на
+// глаз". Расширяется по мере появления числовых метрик у других источников.
+function computeReachEstimate(item) {
+  if (item.agent !== 1) return 0;
+  const youtube = item.result?.raw?.youtube;
+  if (!Array.isArray(youtube)) return 0;
+  return youtube.reduce((sum, video) => sum + (video.views ?? 0) + (video.likes ?? 0), 0);
+}
+
 export function normalizeItem(item) {
   if (item == null || typeof item !== 'object') {
     throw new TypeError('normalizeItem: item must be an object');
@@ -30,6 +43,7 @@ export function normalizeItem(item) {
     result: item.result ?? null,
     confidence: item.confidence?.level ? item.confidence : DEFAULT_CONFIDENCE,
     meta: item.meta ?? defaultMeta(),
-    created_at: item.created_at ?? null
+    created_at: item.created_at ?? null,
+    reachEstimate: computeReachEstimate(item)
   };
 }

@@ -75,3 +75,50 @@ test('preserves a provided content_ref as-is', () => {
   const result = normalizeItem({ job_id: 'abc', agent: 2, content_type: 'video', content_ref: 'https://example.com/video.mp4' });
   assert.equal(result.content_ref, 'https://example.com/video.mp4');
 });
+
+test('defaults reachEstimate to 0 when there is no youtube data', () => {
+  const result = normalizeItem({ job_id: 'abc', agent: 1, content_type: 'search', result: { raw: {} } });
+  assert.equal(result.reachEstimate, 0);
+});
+
+test('defaults reachEstimate to 0 for Agent 2 items regardless of result shape', () => {
+  const result = normalizeItem({
+    job_id: 'abc',
+    agent: 2,
+    content_type: 'video',
+    result: { raw: { youtube: [{ views: 1000, likes: 50 }] } }
+  });
+  assert.equal(result.reachEstimate, 0);
+});
+
+test('sums views + likes across all youtube entries for Agent 1 items', () => {
+  const result = normalizeItem({
+    job_id: 'abc',
+    agent: 1,
+    content_type: 'search',
+    result: {
+      raw: {
+        youtube: [
+          { title: 'A', views: 1000, likes: 50, url: 'https://a', channel: 'x', description: '' },
+          { title: 'B', views: 2000, likes: 100, url: 'https://b', channel: 'y', description: '' }
+        ]
+      }
+    }
+  });
+  assert.equal(result.reachEstimate, 1000 + 50 + 2000 + 100);
+});
+
+test('treats missing views/likes on individual youtube entries as 0, not NaN', () => {
+  const result = normalizeItem({
+    job_id: 'abc',
+    agent: 1,
+    content_type: 'search',
+    result: { raw: { youtube: [{ title: 'A', url: 'https://a' }] } }
+  });
+  assert.equal(result.reachEstimate, 0);
+});
+
+test('defaults reachEstimate to 0 when result itself is null', () => {
+  const result = normalizeItem({ job_id: 'abc', agent: 1, content_type: 'search' });
+  assert.equal(result.reachEstimate, 0);
+});
