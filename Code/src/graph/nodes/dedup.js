@@ -8,10 +8,13 @@ export function createDedupNode({ db, embedText, judgeDuplicate }) {
   return async function dedupNode(state) {
     const resolvedClaims = [];
     const newErrors = [];
+    let costUsdAnalysis = 0;
 
     for (const claim of state.claims) {
       try {
-        resolvedClaims.push(await resolveClaim({ db, embedText, judgeDuplicate, claim }));
+        const { resolvedClaim, costUsd } = await resolveClaim({ db, embedText, judgeDuplicate, claim });
+        resolvedClaims.push(resolvedClaim);
+        costUsdAnalysis += costUsd;
       } catch (err) {
         newErrors.push(`dedup failed for claim subject "${claim.subject}": ${err.message}`);
         resolvedClaims.push({
@@ -28,54 +31,71 @@ export function createDedupNode({ db, embedText, judgeDuplicate }) {
 
     return {
       claims: new Overwrite(resolvedClaims),
-      errors: newErrors
+      errors: newErrors,
+      costUsdAnalysis
     };
   };
 }
 
 async function resolveClaim({ db, embedText, judgeDuplicate, claim }) {
-  const subjectEmbedding = await embedText(claim.subject);
-  const subjectEntityId = await resolveEntity({ db, judgeDuplicate, claim, subjectEmbedding });
+  let costUsd = 0;
+
+  const subjectEmbedded = await embedText(claim.subject);
+  costUsd += subjectEmbedded.costUsd;
+  const { entityId: subjectEntityId, costUsd: entityCost } = await resolveEntity({ db, judgeDuplicate, claim, subjectEmbedding: subjectEmbedded.embedding });
+  costUsd += entityCost;
 
   if (subjectEntityId) {
     const claimText = buildClaimText(claim);
-    const claimEmbedding = await embedText(claimText);
-    const { candidate, isDuplicate } = await resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding, subjectEntityId });
+    const claimEmbedded = await embedText(claimText);
+    costUsd += claimEmbedded.costUsd;
+    const { candidate, isDuplicate, costUsd: duplicateCost } = await resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding: claimEmbedded.embedding, subjectEntityId });
+    costUsd += duplicateCost;
 
     if (isDuplicate) {
       return {
-        ...claim,
-        isDuplicate: true,
-        duplicateOfClaimId: candidate.id,
-        bumpedConfidenceLevel: bumpConfidence(candidate.confidence_level),
-        bumpedConfidenceExplanation: buildBumpedExplanation(candidate.confidence_explanation, claim),
-        subjectEntityId,
-        contradictionCandidate: null
+        costUsd,
+        resolvedClaim: {
+          ...claim,
+          isDuplicate: true,
+          duplicateOfClaimId: candidate.id,
+          bumpedConfidenceLevel: bumpConfidence(candidate.confidence_level),
+          bumpedConfidenceExplanation: buildBumpedExplanation(candidate.confidence_explanation, claim),
+          subjectEntityId,
+          contradictionCandidate: null
+        }
       };
     }
 
     return {
-      ...claim,
-      isDuplicate: false,
-      subjectEntityId,
-      subjectEmbedding: null,
-      claimEmbedding,
-      batchEntityKey: null,
-      contradictionCandidate: candidate
+      costUsd,
+      resolvedClaim: {
+        ...claim,
+        isDuplicate: false,
+        subjectEntityId,
+        subjectEmbedding: null,
+        claimEmbedding: claimEmbedded.embedding,
+        batchEntityKey: null,
+        contradictionCandidate: candidate
+      }
     };
   }
 
   // Новая (ещё не существующая) сущность не может иметь существующих claims —
   // проверка на дубль claim'а не нужна, экономим вызов.
-  const claimEmbedding = await embedText(buildClaimText(claim));
+  const claimEmbedded = await embedText(buildClaimText(claim));
+  costUsd += claimEmbedded.costUsd;
   return {
-    ...claim,
-    isDuplicate: false,
-    subjectEntityId: null,
-    subjectEmbedding,
-    claimEmbedding,
-    batchEntityKey: normalizeKey(claim.subject),
-    contradictionCandidate: null
+    costUsd,
+    resolvedClaim: {
+      ...claim,
+      isDuplicate: false,
+      subjectEntityId: null,
+      subjectEmbedding: subjectEmbedded.embedding,
+      claimEmbedding: claimEmbedded.embedding,
+      batchEntityKey: normalizeKey(claim.subject),
+      contradictionCandidate: null
+    }
   };
 }
 
@@ -86,12 +106,12 @@ async function resolveEntity({ db, judgeDuplicate, claim, subjectEmbedding }) {
   });
 
   if (error || !candidates || candidates.length === 0) {
-    return null;
+    return { entityId: null, costUsd: 0 };
   }
 
   const top = candidates[0];
   const verdict = await judgeDuplicate({ kind: 'entity', new: claim.subject, candidate: top.name });
-  return verdict.isDuplicate ? top.id : null;
+  return { entityId: verdict.isDuplicate ? top.id : null, costUsd: verdict.costUsd };
 }
 
 async function resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding, subjectEntityId }) {
@@ -102,7 +122,7 @@ async function resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding
   });
 
   if (error || !candidates || candidates.length === 0) {
-    return { candidate: null, isDuplicate: false };
+    return { candidate: null, isDuplicate: false, costUsd: 0 };
   }
 
   const top = candidates[0];
@@ -111,7 +131,7 @@ async function resolveClaimDuplicate({ db, judgeDuplicate, claim, claimEmbedding
     new: buildClaimText(claim),
     candidate: `${top.predicate}: ${top.object_value ?? ''}`
   });
-  return { candidate: top, isDuplicate: verdict.isDuplicate };
+  return { candidate: top, isDuplicate: verdict.isDuplicate, costUsd: verdict.costUsd };
 }
 
 function buildClaimText(claim) {

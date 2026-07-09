@@ -1,4 +1,3 @@
-// tests/graph/nodes/dedup.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDedupNode } from '../../../src/graph/nodes/dedup.js';
@@ -21,7 +20,7 @@ test('no entity candidate: creates a new entity path with embeddings and a batch
     match_entities: () => ({ data: [], error: null }),
     match_claims: () => ({ data: [], error: null })
   });
-  const embedText = async (text) => (text.includes('Продукт X') ? [0.1, 0.2] : [0.3, 0.4]);
+  const embedText = async (text) => ({ embedding: text.includes('Продукт X') ? [0.1, 0.2] : [0.3, 0.4], costUsd: 0.00001 });
   const judgeDuplicate = async () => { throw new Error('should not be called when there is no candidate'); };
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
@@ -41,8 +40,8 @@ test('entity candidate confirmed by judge: reuses existing entity, no new-entity
     match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
     match_claims: () => ({ data: [], error: null })
   });
-  const embedText = async () => [0.1, 0.2];
-  const judgeDuplicate = async ({ kind }) => (kind === 'entity' ? { isDuplicate: true, reasoning: 'same' } : { isDuplicate: false });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0.00001 });
+  const judgeDuplicate = async ({ kind }) => (kind === 'entity' ? { isDuplicate: true, reasoning: 'same', costUsd: 0.00002 } : { isDuplicate: false, costUsd: 0 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim()], errors: [] });
@@ -58,8 +57,8 @@ test('entity candidate rejected by judge: falls back to new-entity path', async 
     match_entities: () => ({ data: [{ id: 'ent-1', name: 'Something else', similarity: 0.86 }], error: null }),
     match_claims: () => ({ data: [], error: null })
   });
-  const embedText = async () => [0.1, 0.2];
-  const judgeDuplicate = async () => ({ isDuplicate: false, reasoning: 'different' });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0.00001 });
+  const judgeDuplicate = async () => ({ isDuplicate: false, reasoning: 'different', costUsd: 0.00002 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim()], errors: [] });
@@ -80,8 +79,8 @@ test('claim candidate confirmed by judge on a resolved entity: marks as duplicat
       error: null
     })
   });
-  const embedText = async () => [0.1, 0.2];
-  const judgeDuplicate = async () => ({ isDuplicate: true, reasoning: 'same fact' });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0.00001 });
+  const judgeDuplicate = async () => ({ isDuplicate: true, reasoning: 'same fact', costUsd: 0.00002 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim({ source: { agent: 2, jobId: 'job-9', refType: 'video' } })], errors: [] });
@@ -94,58 +93,6 @@ test('claim candidate confirmed by judge on a resolved entity: marks as duplicat
   assert.match(resolved.bumpedConfidenceExplanation, /agent 2, job job-9/);
 });
 
-test('claim candidate exists but judge rejects duplicate: contradictionCandidate carries the rejected candidate through', async () => {
-  const db = makeFakeDb({
-    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
-    match_claims: () => ({
-      data: [{
-        id: 'claim-1', predicate: 'имеет цену', object_value: '899 руб',
-        confidence_level: 'высокая', confidence_explanation: 'другой источник', similarity: 0.87
-      }],
-      error: null
-    })
-  });
-  const embedText = async () => [0.1, 0.2];
-  const judgeDuplicate = async ({ kind }) => (kind === 'entity' ? { isDuplicate: true } : { isDuplicate: false });
-  const node = createDedupNode({ db, embedText, judgeDuplicate });
-
-  const result = await node({ claims: [claim()], errors: [] });
-
-  const resolved = result.claims.value[0];
-  assert.equal(resolved.isDuplicate, false);
-  assert.ok(resolved.contradictionCandidate);
-  assert.equal(resolved.contradictionCandidate.id, 'claim-1');
-  assert.equal(resolved.contradictionCandidate.confidence_level, 'высокая');
-});
-
-test('no claim candidate at all: contradictionCandidate is null', async () => {
-  const db = makeFakeDb({
-    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
-    match_claims: () => ({ data: [], error: null })
-  });
-  const embedText = async () => [0.1, 0.2];
-  const judgeDuplicate = async () => ({ isDuplicate: true });
-  const node = createDedupNode({ db, embedText, judgeDuplicate });
-
-  const result = await node({ claims: [claim()], errors: [] });
-
-  assert.equal(result.claims.value[0].contradictionCandidate, null);
-});
-
-test('new (unresolved) entity: contradictionCandidate is null (no existing claims possible)', async () => {
-  const db = makeFakeDb({
-    match_entities: () => ({ data: [], error: null }),
-    match_claims: () => ({ data: [], error: null })
-  });
-  const embedText = async () => [0.1];
-  const judgeDuplicate = async () => ({ isDuplicate: false });
-  const node = createDedupNode({ db, embedText, judgeDuplicate });
-
-  const result = await node({ claims: [claim()], errors: [] });
-
-  assert.equal(result.claims.value[0].contradictionCandidate, null);
-});
-
 test('confidence bump caps at высокая and never decreases', async () => {
   const db = makeFakeDb({
     match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
@@ -154,8 +101,8 @@ test('confidence bump caps at высокая and never decreases', async () => {
       error: null
     })
   });
-  const embedText = async () => [0.1];
-  const judgeDuplicate = async () => ({ isDuplicate: true });
+  const embedText = async () => ({ embedding: [0.1], costUsd: 0 });
+  const judgeDuplicate = async () => ({ isDuplicate: true, costUsd: 0 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim()], errors: [] });
@@ -169,8 +116,8 @@ test('a new (unresolved) entity skips the claim-duplicate check entirely (no exi
     match_entities: () => ({ data: [], error: null }),
     match_claims: () => { matchClaimsCalled = true; return { data: [], error: null }; }
   });
-  const embedText = async () => [0.1];
-  const judgeDuplicate = async () => ({ isDuplicate: false });
+  const embedText = async () => ({ embedding: [0.1], costUsd: 0 });
+  const judgeDuplicate = async () => ({ isDuplicate: false, costUsd: 0 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   await node({ claims: [claim()], errors: [] });
@@ -183,8 +130,8 @@ test('a failure resolving one claim does not crash the node: falls back to new-e
     match_entities: () => ({ data: [], error: null }),
     match_claims: () => ({ data: [], error: null })
   });
-  const embedText = async (text) => { throw new Error('Gemini timeout'); };
-  const judgeDuplicate = async () => ({ isDuplicate: false });
+  const embedText = async () => { throw new Error('Gemini timeout'); };
+  const judgeDuplicate = async () => ({ isDuplicate: false, costUsd: 0 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim({ subject: 'job-x-subject' })], errors: [] });
@@ -201,11 +148,93 @@ test('claims channel is wrapped in Overwrite, not a plain array (must replace, n
     match_entities: () => ({ data: [], error: null }),
     match_claims: () => ({ data: [], error: null })
   });
-  const embedText = async () => [0.1];
-  const judgeDuplicate = async () => ({ isDuplicate: false });
+  const embedText = async () => ({ embedding: [0.1], costUsd: 0 });
+  const judgeDuplicate = async () => ({ isDuplicate: false, costUsd: 0 });
   const node = createDedupNode({ db, embedText, judgeDuplicate });
 
   const result = await node({ claims: [claim()], errors: [] });
 
   assert.equal(result.claims.constructor.name, 'Overwrite');
+});
+
+test('claim candidate exists but judge rejects duplicate: contradictionCandidate carries the rejected candidate through', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({
+      data: [{
+        id: 'claim-1', predicate: 'имеет цену', object_value: '899 руб',
+        confidence_level: 'высокая', confidence_explanation: 'другой источник', similarity: 0.87
+      }],
+      error: null
+    })
+  });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0 });
+  const judgeDuplicate = async ({ kind }) => (kind === 'entity' ? { isDuplicate: true, costUsd: 0 } : { isDuplicate: false, costUsd: 0 });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  const resolved = result.claims.value[0];
+  assert.equal(resolved.isDuplicate, false);
+  assert.ok(resolved.contradictionCandidate);
+  assert.equal(resolved.contradictionCandidate.id, 'claim-1');
+  assert.equal(resolved.contradictionCandidate.confidence_level, 'высокая');
+});
+
+test('no claim candidate at all: contradictionCandidate is null', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0 });
+  const judgeDuplicate = async () => ({ isDuplicate: true, costUsd: 0 });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictionCandidate, null);
+});
+
+test('new (unresolved) entity: contradictionCandidate is null (no existing claims possible)', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => ({ embedding: [0.1], costUsd: 0 });
+  const judgeDuplicate = async () => ({ isDuplicate: false, costUsd: 0 });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.claims.value[0].contradictionCandidate, null);
+});
+
+test('sums costUsd from every embedText/judgeDuplicate call into costUsdAnalysis', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [{ id: 'ent-1', name: 'Product X', similarity: 0.9 }], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  // Called twice: subject embedding + claim embedding (entity resolved, no claim candidate → no claim-duplicate judge call)
+  const embedText = async () => ({ embedding: [0.1, 0.2], costUsd: 0.01 });
+  // Called once: entity judge
+  const judgeDuplicate = async () => ({ isDuplicate: true, costUsd: 0.02 });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.costUsdAnalysis, 0.01 + 0.01 + 0.02);
+});
+
+test('a failed embedText call contributes 0 cost for that claim (does not crash cost accounting)', async () => {
+  const db = makeFakeDb({
+    match_entities: () => ({ data: [], error: null }),
+    match_claims: () => ({ data: [], error: null })
+  });
+  const embedText = async () => { throw new Error('Gemini timeout'); };
+  const judgeDuplicate = async () => ({ isDuplicate: false, costUsd: 0 });
+  const node = createDedupNode({ db, embedText, judgeDuplicate });
+
+  const result = await node({ claims: [claim()], errors: [] });
+
+  assert.equal(result.costUsdAnalysis, 0);
 });
