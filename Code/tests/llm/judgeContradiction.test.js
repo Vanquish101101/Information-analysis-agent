@@ -16,8 +16,8 @@ test('throws when apiKey is missing', () => {
   assert.throws(() => createContradictionJudge({}), /apiKey is required/);
 });
 
-test('builds the request with the correct URL, model, and both claim texts in the prompt', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "средняя", "explanation": "ok"}' } }] });
+test('builds the request with the correct URL, model, both claim texts in the prompt, and usage:{include:true}', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "средняя", "explanation": "ok"}' } }], usage: { cost: 0.00001 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'secret-key', fetchImpl });
 
   await judgeContradiction({ newClaimText: 'X: подняла: 5 млн', existingClaimText: 'подняла: 3 млн' });
@@ -28,12 +28,13 @@ test('builds the request with the correct URL, model, and both claim texts in th
   assert.equal(options.headers['Authorization'], 'Bearer secret-key');
   const body = JSON.parse(options.body);
   assert.equal(body.model, 'anthropic/claude-haiku-4-5');
+  assert.deepEqual(body.usage, { include: true });
   assert.match(body.messages[0].content, /5 млн/);
   assert.match(body.messages[0].content, /3 млн/);
 });
 
 test('routes through Helicone proxy and adds Helicone-Auth header when heliconeApiKey is set', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "средняя", "explanation": "ok"}' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "средняя", "explanation": "ok"}' } }], usage: { cost: 0.00001 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'secret-key', heliconeApiKey: 'helicone-key', fetchImpl });
 
   await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
@@ -44,7 +45,7 @@ test('routes through Helicone proxy and adds Helicone-Auth header when heliconeA
 });
 
 test('parses an agree verdict', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "высокая", "explanation": "совместимо"}' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "высокая", "explanation": "совместимо"}' } }], usage: { cost: 0.00002 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
 
   const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
@@ -55,7 +56,7 @@ test('parses an agree verdict', async () => {
 });
 
 test('parses a contradict verdict', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "contradict", "confidence_level": "средняя", "explanation": "разные суммы"}' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "contradict", "confidence_level": "средняя", "explanation": "разные суммы"}' } }], usage: { cost: 0.00002 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
 
   const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
@@ -64,7 +65,7 @@ test('parses a contradict verdict', async () => {
 });
 
 test('parses an unclear verdict', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "unclear", "confidence_level": "низкая", "explanation": "не уверен"}' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "unclear", "confidence_level": "низкая", "explanation": "не уверен"}' } }], usage: { cost: 0.00002 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
 
   const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
@@ -72,8 +73,26 @@ test('parses an unclear verdict', async () => {
   assert.equal(result.label, 'unclear');
 });
 
+test('returns the real cost from usage.cost', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "высокая", "explanation": "ok"}' } }], usage: { cost: 0.000018 } });
+  const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
+
+  const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
+
+  assert.equal(result.costUsd, 0.000018);
+});
+
+test('defaults costUsd to 0 when the response has no usage.cost field', async () => {
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '{"label": "agree", "confidence_level": "высокая", "explanation": "ok"}' } }] });
+  const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
+
+  const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });
+
+  assert.equal(result.costUsd, 0);
+});
+
 test('strips a ```json code fence before parsing', async () => {
-  const fetchImpl = fakeFetch({ choices: [{ message: { content: '```json\n{"label": "agree", "confidence_level": "высокая", "explanation": "ok"}\n```' } }] });
+  const fetchImpl = fakeFetch({ choices: [{ message: { content: '```json\n{"label": "agree", "confidence_level": "высокая", "explanation": "ok"}\n```' } }], usage: { cost: 0.00001 } });
   const judgeContradiction = createContradictionJudge({ apiKey: 'test-key', fetchImpl });
 
   const result = await judgeContradiction({ newClaimText: 'a', existingClaimText: 'b' });

@@ -23,7 +23,8 @@ export function createContradictionJudge({ apiKey, model = 'anthropic/claude-hai
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: buildPrompt(newClaimText, existingClaimText) }],
-        max_tokens: 300
+        max_tokens: 300,
+        usage: { include: true }
       })
     });
 
@@ -37,7 +38,7 @@ export function createContradictionJudge({ apiKey, model = 'anthropic/claude-hai
       throw new Error('judgeContradiction: LLM returned no content');
     }
 
-    return parseVerdict(content);
+    return { ...parseVerdict(content), costUsd: data.usage?.cost ?? 0 };
   };
 }
 
