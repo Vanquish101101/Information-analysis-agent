@@ -31,5 +31,6 @@ export const AnalysisState = Annotation.Root({
   escalationsPendingUser: Annotation(),
   costCapReached: Annotation(),
   persistedFacts: Annotation(),
-  persistedContradictions: Annotation()
+  persistedContradictions: Annotation(),
+  pendingDecisionMessages: Annotation()
 });
