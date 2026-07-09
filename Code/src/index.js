@@ -5,6 +5,7 @@ import { createOpenRouterExtractor } from './llm/extractClaims.js';
 import { createDuplicateJudge } from './llm/judgeDuplicate.js';
 import { createContradictionJudge } from './llm/judgeContradiction.js';
 import { createGeminiEmbedder } from './embeddings/embedText.js';
+import { createDeepParsingClient } from './mcp-clients/deepParsingClient.js';
 import { createRedisStateStore } from './scheduler/redisStateStore.js';
 import { createAnalysisGraph } from './graph/index.js';
 import { createScheduler } from './scheduler/index.js';
@@ -31,6 +32,7 @@ function requireEnv(name) {
   const judgeDuplicate = createDuplicateJudge({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
   const judgeContradiction = createContradictionJudge({ apiKey: requireEnv('OPENROUTER_API_KEY'), heliconeApiKey });
   const embedText = createGeminiEmbedder({ apiKey: requireEnv('GEMINI_API_KEY'), heliconeApiKey });
+  const retryParse = createDeepParsingClient({ baseUrl: requireEnv('DEEP_PARSING_AGENT_URL') });
   const stateStore = createRedisStateStore({ redisUrl: requireEnv('REDIS_URL') });
 
   try {
@@ -40,7 +42,7 @@ function requireEnv(name) {
     process.exit(1);
   }
 
-  const runAnalysis = createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction });
+  const runAnalysis = createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse });
 
   const telegramId = process.env.TELEGRAM_ALLOWED_USER_ID
     ? Number(process.env.TELEGRAM_ALLOWED_USER_ID)
