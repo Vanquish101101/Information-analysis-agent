@@ -4,7 +4,7 @@ name: information-analysis-agent
 services:
   information-analysis-agent:
     build: .
-    image: information-analysis-agent:v0.3.0
+    image: information-analysis-agent:v0.5.0
     container_name: information-analysis-agent
     restart: unless-stopped
     env_file: .env
@@ -12,6 +12,9 @@ services:
       # Переопределяет .env: внутри контейнера Redis доступен по имени сервиса
       # на общей сети, а не по localhost (тот — для локального запуска вне Docker).
       - REDIS_URL=redis://redis:6379/0
+      - MCP_HTTP_PORT=7302
+    ports:
+      - "7302:7302"   # MCP Streamable HTTP — доступен и с хоста для проверки (тот же паттерн, что у Агента 2 на 7301)
     volumes:
       - ./logs:/app/logs
     networks:
