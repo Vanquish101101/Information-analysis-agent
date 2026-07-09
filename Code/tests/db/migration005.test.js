@@ -35,3 +35,8 @@ test('creates the claim_source_stats RPC function returning claim_id/sources_cou
   assert.match(sql, /RETURNS TABLE \(claim_id uuid, sources_count bigint, reach_estimate numeric\)/);
   assert.match(sql, /GRANT EXECUTE ON FUNCTION information_analysis_agent\.claim_source_stats TO anon, authenticated, service_role/);
 });
+
+test('grants access to the new claim_sources and digests tables (001\'s blanket GRANT ALL ON ALL TABLES only covered tables that existed at the time it ran)', () => {
+  assert.match(sql, /GRANT ALL ON information_analysis_agent\.claim_sources TO anon, authenticated, service_role/);
+  assert.match(sql, /GRANT ALL ON information_analysis_agent\.digests TO anon, authenticated, service_role/);
+});

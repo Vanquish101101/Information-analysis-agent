@@ -49,3 +49,10 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION information_analysis_agent.claim_source_stats TO anon, authenticated, service_role;
+
+-- 001's "GRANT ALL ON ALL TABLES" only covered tables that existed at the time
+-- it ran — every migration since (see 003_contradictions.sql) has had to grant
+-- its own new tables explicitly. Missed here originally; caught by a live
+-- smoke test failing with "permission denied for table claim_sources/digests".
+GRANT ALL ON information_analysis_agent.claim_sources TO anon, authenticated, service_role;
+GRANT ALL ON information_analysis_agent.digests TO anon, authenticated, service_role;
