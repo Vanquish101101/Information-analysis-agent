@@ -93,7 +93,8 @@ export function createEscalationNode({ db, retryParse }) {
       escalationsAuto,
       escalationsPendingUser,
       costUsdRetry,
-      costCapReached
+      costCapReached,
+      pendingDecisionMessages: pendingDecisions
     };
   };
 }

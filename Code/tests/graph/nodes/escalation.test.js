@@ -142,3 +142,35 @@ test('a failure inserting a pending_user_decisions row is logged, not thrown', a
 
   assert.equal(result.escalationsPendingUser, 1);
 });
+
+test('returns pendingDecisionMessages mirroring exactly what was inserted into pending_user_decisions', async () => {
+  const db = makeFakeDb({ pending_user_decisions: () => ({ error: null }) });
+  const retryParse = async () => { throw new Error('should not be called'); };
+  const node = createEscalationNode({ db, retryParse });
+
+  const result = await node({ items: [item({ agent: 1, content_ref: null })] });
+
+  assert.equal(result.pendingDecisionMessages.length, 1);
+  assert.equal(result.pendingDecisionMessages[0].job_id, 'job-1');
+  assert.match(result.pendingDecisionMessages[0].question, /content_ref/);
+});
+
+test('pendingDecisionMessages is an empty array when there are no escalations', async () => {
+  const db = makeFakeDb({});
+  const retryParse = async () => { throw new Error('should not be called'); };
+  const node = createEscalationNode({ db, retryParse });
+
+  const result = await node({ items: [item({ confidence: { level: 'высокая', explanation: 'ok' } })] });
+
+  assert.deepEqual(result.pendingDecisionMessages, []);
+});
+
+test('pendingDecisionMessages includes the estimated_cost_usd for a cost-threshold escalation', async () => {
+  const db = makeFakeDb({ pending_user_decisions: () => ({ error: null }) });
+  const retryParse = async () => { throw new Error('should not be called'); };
+  const node = createEscalationNode({ db, retryParse });
+
+  const result = await node({ items: [item({ content_type: 'video' })] }); // video estimate = $0.15 > $0.10
+
+  assert.equal(result.pendingDecisionMessages[0].estimated_cost_usd, 0.15);
+});
