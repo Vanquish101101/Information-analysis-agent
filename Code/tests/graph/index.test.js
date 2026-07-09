@@ -17,7 +17,8 @@ function makeDb() {
     contradictions: () => ({ error: null }),
     pending_user_decisions: () => ({ error: null }),
     match_entities: () => ({ data: [], error: null }),
-    match_claims: () => ({ data: [], error: null })
+    match_claims: () => ({ data: [], error: null }),
+    claim_sources: () => ({ error: null })
   });
 }
 
@@ -133,7 +134,8 @@ test('end-to-end: a contradicting claim gets flagged and persisted with a contra
         confidence_level: 'средняя', confidence_explanation: 'ok', similarity: 0.9
       }],
       error: null
-    })
+    }),
+    claim_sources: () => ({ error: null })
   });
 
   const extractClaims = async () => ({

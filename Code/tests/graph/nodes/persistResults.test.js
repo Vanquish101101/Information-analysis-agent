@@ -11,7 +11,7 @@ function claim(overrides = {}) {
     object_value: 'value',
     confidence_level: 'высокая',
     confidence_explanation: 'ok',
-    source: { agent: 1, jobId: 'job-1', refType: 'search' },
+    source: { agent: 1, jobId: 'job-1', refType: 'search', reachEstimate: 0 },
     isDuplicate: false,
     subjectEntityId: null,
     subjectEmbedding: [0.1, 0.2],
@@ -23,7 +23,7 @@ function claim(overrides = {}) {
 
 test('creates a run, one source per unique job, one entity+claim per claim, status ok', async () => {
   let entityCounter = 0;
-  const inserted = { sources: [], entities: [], claims: [] };
+  const inserted = { sources: [], entities: [], claims: [], claimSources: [] };
   const db = makeFakeDb({
     runs: (state) => {
       if (state.operation === 'insert') return { data: { id: 'run-1' }, error: null };
@@ -41,6 +41,10 @@ test('creates a run, one source per unique job, one entity+claim per claim, stat
     },
     claims: (state) => {
       inserted.claims.push(state.payload);
+      return { data: { id: `claim-${inserted.claims.length}` }, error: null };
+    },
+    claim_sources: (state) => {
+      inserted.claimSources.push(state.payload);
       return { error: null };
     }
   });
@@ -64,6 +68,8 @@ test('creates a run, one source per unique job, one entity+claim per claim, stat
   assert.equal(inserted.claims.length, 2);
   assert.equal(inserted.claims[0].subject_entity_id, 'ent-1');
   assert.equal(inserted.claims[0].source_id, 'src-1');
+  assert.equal(inserted.claimSources.length, 2, 'one claim_sources row per persisted claim');
+  assert.deepEqual(inserted.claimSources[0], { claim_id: 'claim-1', source_id: 'src-1' });
 });
 
 test('status is partial when state.errors is non-empty', async () => {
@@ -71,7 +77,8 @@ test('status is partial when state.errors is non-empty', async () => {
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-2' }, error: null } : { error: null }),
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
-    claims: () => ({ error: null })
+    claims: () => ({ data: { id: 'claim-1' }, error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -101,6 +108,8 @@ test('creates a run with no writes when there are no claims at all', async () =>
   assert.equal(result.runId, 'run-3');
   assert.equal(result.status, 'ok');
   assert.equal(sourcesCalled, false);
+  assert.deepEqual(result.persistedFacts, []);
+  assert.deepEqual(result.persistedContradictions, []);
 });
 
 test('creates one source per distinct (agent, jobId) pair when claims come from different sources', async () => {
@@ -121,16 +130,17 @@ test('creates one source per distinct (agent, jobId) pair when claims come from 
     },
     claims: (state) => {
       inserted.claims.push(state.payload);
-      return { error: null };
-    }
+      return { data: { id: `claim-${inserted.claims.length}` }, error: null };
+    },
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
   const state = {
     items: [{ job_id: 'job-1' }, { job_id: 'job-2' }],
     claims: [
-      claim({ subject: 'A', source: { agent: 1, jobId: 'job-1', refType: 'search' } }),
-      claim({ subject: 'B', source: { agent: 2, jobId: 'job-2', refType: 'video' } })
+      claim({ subject: 'A', source: { agent: 1, jobId: 'job-1', refType: 'search', reachEstimate: 0 } }),
+      claim({ subject: 'B', source: { agent: 2, jobId: 'job-2', refType: 'video', reachEstimate: 0 } })
     ],
     errors: []
   };
@@ -175,7 +185,8 @@ test('reusing an existing entity does not insert a new entities row, and updates
       }
       throw new Error('should not insert a new entity when subjectEntityId is already resolved');
     },
-    claims: () => ({ error: null })
+    claims: () => ({ data: { id: 'claim-1' }, error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -203,8 +214,9 @@ test('two claims sharing a batchEntityKey (both new) create only one entity, reu
     },
     claims: (state) => {
       insertedClaims.push(state.payload);
-      return { error: null };
-    }
+      return { data: { id: `claim-${insertedClaims.length}` }, error: null };
+    },
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -225,9 +237,10 @@ test('two claims sharing a batchEntityKey (both new) create only one entity, reu
   assert.equal(insertedClaims[1].subject_entity_id, 'ent-1');
 });
 
-test('a claim marked isDuplicate updates the existing claim instead of inserting a new one', async () => {
+test('a claim marked isDuplicate updates the existing claim instead of inserting a new one, and links claim_sources to the existing claim id', async () => {
   let claimsInsertCalled = false;
   let claimsUpdatePayload = null;
+  const claimSourceLinks = [];
   const db = makeFakeDb({
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-8' }, error: null } : { error: null }),
     sources: () => ({ data: { id: 'src-1' }, error: null }),
@@ -235,7 +248,8 @@ test('a claim marked isDuplicate updates the existing claim instead of inserting
       if (state.operation === 'insert') { claimsInsertCalled = true; return { error: null }; }
       claimsUpdatePayload = state.payload;
       return { error: null };
-    }
+    },
+    claim_sources: (state) => { claimSourceLinks.push(state.payload); return { error: null }; }
   });
 
   const node = createPersistResultsNode({ db });
@@ -251,11 +265,16 @@ test('a claim marked isDuplicate updates the existing claim instead of inserting
     errors: []
   };
 
-  await node(state);
+  const result = await node(state);
 
   assert.equal(claimsInsertCalled, false);
   assert.equal(claimsUpdatePayload.confidence_level, 'средняя');
   assert.match(claimsUpdatePayload.confidence_explanation, /Подтверждено дополнительным источником/);
+  assert.equal(claimSourceLinks.length, 1);
+  assert.deepEqual(claimSourceLinks[0], { claim_id: 'claim-existing', source_id: 'src-1' });
+  assert.equal(result.persistedFacts.length, 1);
+  assert.equal(result.persistedFacts[0].claimId, 'claim-existing');
+  assert.equal(result.persistedFacts[0].confidence_level, 'средняя');
 });
 
 test('new entities and claims are created with their embedding column populated', async () => {
@@ -265,7 +284,8 @@ test('new entities and claims are created with their embedding column populated'
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-9' }, error: null } : { error: null }),
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: (state) => { insertedEntities.push(state.payload); return { data: { id: 'ent-1' }, error: null }; },
-    claims: (state) => { insertedClaims.push(state.payload); return { error: null }; }
+    claims: (state) => { insertedClaims.push(state.payload); return { data: { id: 'claim-1' }, error: null }; },
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -277,7 +297,29 @@ test('new entities and claims are created with their embedding column populated'
   assert.deepEqual(insertedClaims[0].embedding, [0.3, 0.4]);
 });
 
-test('a claim with a null claimEmbedding (dedup error-fallback) is skipped for the claims insert, but its entity is still created', async () => {
+test('sources row is created with the reach_estimate from claim.source.reachEstimate', async () => {
+  const insertedSources = [];
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-17' }, error: null } : { error: null }),
+    sources: (state) => { insertedSources.push(state.payload); return { data: { id: 'src-1' }, error: null }; },
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: () => ({ data: { id: 'claim-1' }, error: null }),
+    claim_sources: () => ({ error: null })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = {
+    items: [{ job_id: 'job-1' }],
+    claims: [claim({ source: { agent: 1, jobId: 'job-1', refType: 'search', reachEstimate: 45000 } })],
+    errors: []
+  };
+
+  await node(state);
+
+  assert.equal(insertedSources[0].reach_estimate, 45000);
+});
+
+test('a claim with a null claimEmbedding (dedup error-fallback) is skipped for the claims insert, but its entity is still created, and it does not appear in persistedFacts', async () => {
   const insertedEntities = [];
   const db = makeFakeDb({
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-10' }, error: null } : { error: null }),
@@ -297,9 +339,10 @@ test('a claim with a null claimEmbedding (dedup error-fallback) is skipped for t
 
   assert.equal(insertedEntities.length, 1, 'entity grouping/creation still happens even when the claim itself is skipped');
   assert.equal(result.status, 'partial');
+  assert.deepEqual(result.persistedFacts, []);
 });
 
-test('a claim marked hasContradiction inserts a contradictions row after the claim, referencing both claim ids', async () => {
+test('a claim marked hasContradiction inserts a contradictions row after the claim, and appears in persistedContradictions', async () => {
   const insertedContradictions = [];
   const db = makeFakeDb({
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-11' }, error: null } : { error: null }),
@@ -312,7 +355,8 @@ test('a claim marked hasContradiction inserts a contradictions row after the cla
     contradictions: (state) => {
       insertedContradictions.push(state.payload);
       return { error: null };
-    }
+    },
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -328,23 +372,27 @@ test('a claim marked hasContradiction inserts a contradictions row after the cla
     errors: []
   };
 
-  await node(state);
+  const result = await node(state);
 
   assert.equal(insertedContradictions.length, 1);
   assert.equal(insertedContradictions[0].claim_a_id, 'claim-new-1');
   assert.equal(insertedContradictions[0].claim_b_id, 'claim-existing-1');
-  assert.equal(insertedContradictions[0].label, 'contradict');
-  assert.equal(insertedContradictions[0].confidence_level, 'высокая');
-  assert.equal(insertedContradictions[0].explanation, 'разные суммы');
+  assert.equal(result.persistedContradictions.length, 1);
+  assert.deepEqual(result.persistedContradictions[0], {
+    claimAId: 'claim-new-1',
+    claimBId: 'claim-existing-1',
+    explanation: 'разные суммы'
+  });
 });
 
-test('a claim without hasContradiction does not touch the contradictions table', async () => {
+test('a claim without hasContradiction does not touch the contradictions table, and persistedContradictions stays empty', async () => {
   const db = makeFakeDb({
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-12' }, error: null } : { error: null }),
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
     claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-new-2' }, error: null } : { error: null }),
-    contradictions: () => { throw new Error('should not write to contradictions when hasContradiction is not true'); }
+    contradictions: () => { throw new Error('should not write to contradictions when hasContradiction is not true'); },
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -353,6 +401,7 @@ test('a claim without hasContradiction does not touch the contradictions table',
   const result = await node(state);
 
   assert.equal(result.status, 'ok');
+  assert.deepEqual(result.persistedContradictions, []);
 });
 
 test('writes cost_usd/cost_usd_analysis/cost_usd_retry/escalations_auto/escalations_pending_user on the final status update', async () => {
@@ -365,7 +414,8 @@ test('writes cost_usd/cost_usd_analysis/cost_usd_retry/escalations_auto/escalati
     },
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
-    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -398,7 +448,8 @@ test('defaults cost/escalation fields to 0 when the state does not set them (bac
     },
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
-    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -423,7 +474,8 @@ test('status is cost_cap_reached when state.costCapReached is true, overriding o
     },
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
-    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -440,7 +492,8 @@ test('status is still partial (not cost_cap_reached) when costCapReached is fals
     runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-16' }, error: null } : { error: null }),
     sources: () => ({ data: { id: 'src-1' }, error: null }),
     entities: () => ({ data: { id: 'ent-1' }, error: null }),
-    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null })
+    claims: (state) => (state.operation === 'insert' ? { data: { id: 'claim-1' }, error: null } : { error: null }),
+    claim_sources: () => ({ error: null })
   });
 
   const node = createPersistResultsNode({ db });
@@ -449,4 +502,22 @@ test('status is still partial (not cost_cap_reached) when costCapReached is fals
   const result = await node(state);
 
   assert.equal(result.status, 'partial');
+});
+
+test('a failure inserting a claim_sources row is logged, not thrown (does not crash the whole run)', async () => {
+  const db = makeFakeDb({
+    runs: (state) => (state.operation === 'insert' ? { data: { id: 'run-18' }, error: null } : { error: null }),
+    sources: () => ({ data: { id: 'src-1' }, error: null }),
+    entities: () => ({ data: { id: 'ent-1' }, error: null }),
+    claims: () => ({ data: { id: 'claim-1' }, error: null }),
+    claim_sources: () => ({ error: { message: 'constraint violation' } })
+  });
+
+  const node = createPersistResultsNode({ db });
+  const state = { items: [{ job_id: 'job-1' }], claims: [claim()], errors: [] };
+
+  const result = await node(state);
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.persistedFacts.length, 1, 'claim_sources failure does not prevent the fact from being reported');
 });

@@ -24,7 +24,8 @@ export function createPersistResultsNode({ db }) {
             .insert({
               agent: claim.source.agent,
               source_type: claim.source.refType,
-              raw_job_id: claim.source.jobId
+              raw_job_id: claim.source.jobId,
+              reach_estimate: claim.source.reachEstimate ?? 0
             })
             .select()
             .single();
@@ -61,6 +62,9 @@ export function createPersistResultsNode({ db }) {
         }
       }
 
+      const persistedFacts = [];
+      const persistedContradictions = [];
+
       for (const claim of state.claims) {
         const sourceKey = `${claim.source.agent}:${claim.source.jobId}`;
         const sourceId = sourceIds.get(sourceKey);
@@ -76,6 +80,15 @@ export function createPersistResultsNode({ db }) {
           if (updateError) {
             throw new Error(`persistResults: failed to update duplicate claim: ${updateError.message}`);
           }
+
+          await linkClaimSource(db, claim.duplicateOfClaimId, sourceId);
+          persistedFacts.push({
+            claimId: claim.duplicateOfClaimId,
+            subject: claim.subject,
+            predicate: claim.predicate,
+            object_value: claim.object_value,
+            confidence_level: claim.bumpedConfidenceLevel
+          });
           continue;
         }
 
@@ -106,6 +119,15 @@ export function createPersistResultsNode({ db }) {
           throw new Error(`persistResults: failed to create claim: ${claimError.message}`);
         }
 
+        await linkClaimSource(db, claimRow.id, sourceId);
+        persistedFacts.push({
+          claimId: claimRow.id,
+          subject: claim.subject,
+          predicate: claim.predicate,
+          object_value: claim.object_value,
+          confidence_level: claim.confidence_level
+        });
+
         if (claim.hasContradiction) {
           const { error: contradictionError } = await db
             .from('contradictions')
@@ -118,6 +140,12 @@ export function createPersistResultsNode({ db }) {
             });
           if (contradictionError) {
             console.error(`persistResults: failed to record contradiction for claim ${claimRow.id}:`, contradictionError.message);
+          } else {
+            persistedContradictions.push({
+              claimAId: claimRow.id,
+              claimBId: claim.contradictsClaimId,
+              explanation: claim.contradictionExplanation
+            });
           }
         }
       }
@@ -138,7 +166,7 @@ export function createPersistResultsNode({ db }) {
         console.error(`persistResults: failed to update run status to "${finalStatus}":`, statusUpdateError.message);
       }
 
-      return { runId, status: finalStatus };
+      return { runId, status: finalStatus, persistedFacts, persistedContradictions };
     } catch (err) {
       const { error: rollbackError } = await db.from('runs').update({ status: 'error' }).eq('id', runId);
       if (rollbackError) {
@@ -147,4 +175,14 @@ export function createPersistResultsNode({ db }) {
       throw err;
     }
   };
+}
+
+// claim_sources — задел для честного sources_count в дайджесте (Слайс 8).
+// Сбой этой записи не должен ронять прогон: сама claims/entities/sources
+// запись уже успешно прошла, теряется только вспомогательная метрика.
+async function linkClaimSource(db, claimId, sourceId) {
+  const { error } = await db.from('claim_sources').insert({ claim_id: claimId, source_id: sourceId });
+  if (error) {
+    console.error(`persistResults: failed to link claim_sources for claim ${claimId}:`, error.message);
+  }
 }
