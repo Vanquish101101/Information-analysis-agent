@@ -231,6 +231,53 @@ test('a claim_source_stats RPC failure is caught and logged, does not throw', as
   assert.deepEqual(result, {});
 });
 
+test('calls notifyAgent4 with runId after a successful digest save', async () => {
+  const notifyCalls = [];
+  const db = makeFakeDb({
+    claim_source_stats: () => ({ data: [], error: null }),
+    digests: () => ({ error: null }),
+    runs: () => ({ error: null })
+  });
+  const synthesizeDigest = async () => ({ statements: [{ claimId: 'claim-1', statement: 'ok' }], costUsd: 0 });
+  const notifyAgent4 = async (runId) => { notifyCalls.push(runId); };
+  const node = createGlobalSynthesisNode({ db, synthesizeDigest, notifyAgent4 });
+
+  await node(baseState({ runId: 'run-notify-test' }));
+
+  // give fire-and-forget a tick to settle
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(notifyCalls, ['run-notify-test']);
+});
+
+test('does NOT call notifyAgent4 when digest insert fails', async () => {
+  const notifyCalls = [];
+  const db = makeFakeDb({
+    claim_source_stats: () => ({ data: [], error: null }),
+    digests: () => ({ error: { message: 'constraint violation' } }),
+    runs: () => ({ error: null })
+  });
+  const synthesizeDigest = async () => ({ statements: [{ claimId: 'claim-1', statement: 'ok' }], costUsd: 0.0005 });
+  const notifyAgent4 = async (runId) => { notifyCalls.push(runId); };
+  const node = createGlobalSynthesisNode({ db, synthesizeDigest, notifyAgent4 });
+
+  await node(baseState());
+
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(notifyCalls, []);
+});
+
+test('skips notifyAgent4 when it is not provided (backwards compat)', async () => {
+  const db = makeFakeDb({
+    claim_source_stats: () => ({ data: [], error: null }),
+    digests: () => ({ error: null }),
+    runs: () => ({ error: null })
+  });
+  const synthesizeDigest = async () => ({ statements: [{ claimId: 'claim-1', statement: 'ok' }], costUsd: 0 });
+  const node = createGlobalSynthesisNode({ db, synthesizeDigest }); // no notifyAgent4
+
+  await assert.doesNotReject(() => node(baseState()));
+});
+
 test('a digests insert failure is caught and logged, does not throw, but still adds the already-incurred synthesis cost to runs', async () => {
   let runUpdatePayload = null;
   const db = makeFakeDb({

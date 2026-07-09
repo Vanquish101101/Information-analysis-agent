@@ -1,6 +1,6 @@
 // src/graph/nodes/globalSynthesis.js
 
-export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
+export function createGlobalSynthesisNode({ db, synthesizeDigest, notifyAgent4 } = {}) {
   return async function globalSynthesisNode(state) {
     const persistedFacts = state.persistedFacts ?? [];
     const persistedContradictions = state.persistedContradictions ?? [];
@@ -90,6 +90,13 @@ export function createGlobalSynthesisNode({ db, synthesizeDigest }) {
     // добавляется отдельным маленьким UPDATE поверх уже записанного, а не
     // переделкой уже проверенной логики persistResults.
     await addSynthesisCostToRun(db, state.runId, costUsdAnalysis, costUsdRetry, synthesisCostUsd);
+
+    // Уведомляем Агента 4 о готовом дайджесте (fire-and-forget, некритично)
+    if (typeof notifyAgent4 === 'function') {
+      notifyAgent4(state.runId).catch((err) =>
+        console.error('globalSynthesis: notifyAgent4 failed (non-fatal):', err.message)
+      );
+    }
 
     return {};
   };

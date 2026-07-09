@@ -11,7 +11,7 @@ import { createPersistResultsNode } from './nodes/persistResults.js';
 import { createGlobalSynthesisNode } from './nodes/globalSynthesis.js';
 import { createNotificationsNode } from './nodes/notifications.js';
 
-export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse, synthesizeDigest, sendNotification } = {}) {
+export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplicate, judgeContradiction, retryParse, synthesizeDigest, sendNotification, notifyAgent4 } = {}) {
   if (!db) {
     throw new Error('createAnalysisGraph: db is required');
   }
@@ -42,7 +42,7 @@ export function createAnalysisGraph({ db, extractClaims, embedText, judgeDuplica
   const dedupNode = createDedupNode({ db, embedText, judgeDuplicate });
   const contradictionNode = createContradictionNode({ judgeContradiction });
   const persistResultsNode = createPersistResultsNode({ db });
-  const globalSynthesisNode = createGlobalSynthesisNode({ db, synthesizeDigest });
+  const globalSynthesisNode = createGlobalSynthesisNode({ db, synthesizeDigest, notifyAgent4 });
   const notificationsNode = createNotificationsNode({ sendNotification });
 
   const compiledGraph = new StateGraph(AnalysisState)
