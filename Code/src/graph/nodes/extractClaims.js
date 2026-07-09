@@ -4,7 +4,7 @@ export function createExtractClaimsNode(extractClaims) {
       const { claims: rawClaims, costUsd } = await extractClaims(item);
       const claims = rawClaims.map((claim) => ({
         ...claim,
-        source: { agent: item.agent, jobId: item.job_id, refType: item.content_type }
+        source: { agent: item.agent, jobId: item.job_id, refType: item.content_type, reachEstimate: item.reachEstimate ?? 0 }
       }));
       return { claims, costUsdAnalysis: costUsd };
     } catch (err) {

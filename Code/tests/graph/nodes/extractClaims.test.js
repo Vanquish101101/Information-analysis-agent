@@ -16,8 +16,8 @@ test('attaches source metadata to each claim returned by the injected extractCla
   const result = await node({ item });
 
   assert.equal(result.claims.length, 2);
-  assert.deepEqual(result.claims[0].source, { agent: 1, jobId: 'job-1', refType: 'search' });
-  assert.deepEqual(result.claims[1].source, { agent: 1, jobId: 'job-1', refType: 'search' });
+  assert.deepEqual(result.claims[0].source, { agent: 1, jobId: 'job-1', refType: 'search', reachEstimate: 0 });
+  assert.deepEqual(result.claims[1].source, { agent: 1, jobId: 'job-1', refType: 'search', reachEstimate: 0 });
   assert.equal(result.claims[0].subject, 'A');
   assert.equal(result.costUsdAnalysis, 0.00004);
 });
@@ -53,4 +53,29 @@ test('a failure that already incurred real cost (err.costUsd set) still contribu
   const result = await node({ item: { job_id: 'job-4', agent: 1, content_type: 'search' } });
 
   assert.equal(result.costUsdAnalysis, 0.00007);
+});
+
+test('threads item.reachEstimate through into each claim.source', async () => {
+  const fakeExtract = async () => ({
+    claims: [{ subject: 'A', predicate: 'B', object_value: 'C', confidence_level: 'высокая', confidence_explanation: 'D' }],
+    costUsd: 0.00001
+  });
+  const node = createExtractClaimsNode(fakeExtract);
+  const item = { job_id: 'job-5', agent: 1, content_type: 'search', reachEstimate: 15000 };
+
+  const result = await node({ item });
+
+  assert.equal(result.claims[0].source.reachEstimate, 15000);
+});
+
+test('defaults claim.source.reachEstimate to 0 when the item has no reachEstimate', async () => {
+  const fakeExtract = async () => ({
+    claims: [{ subject: 'A', predicate: 'B', object_value: 'C', confidence_level: 'высокая', confidence_explanation: 'D' }],
+    costUsd: 0
+  });
+  const node = createExtractClaimsNode(fakeExtract);
+
+  const result = await node({ item: { job_id: 'job-6', agent: 2, content_type: 'video' } });
+
+  assert.equal(result.claims[0].source.reachEstimate, 0);
 });
