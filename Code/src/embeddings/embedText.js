@@ -31,6 +31,15 @@ export function createGeminiEmbedder({ apiKey, model = 'gemini-embedding-001', h
     );
 
     if (!response.ok) {
+      // Найдено живой проверкой 2026-07-12: смена региона VPN/сети привела к
+      // реальному 400 FAILED_PRECONDITION "User location is not supported
+      // for the API use" — ограничение Google по стране подключения, не
+      // проблема ключа. Без этой проверки пользователь видел бы только
+      // невнятный "HTTP 400" и не понял бы, что делать.
+      const errorBody = await response.json().catch(() => null);
+      if (errorBody?.error?.status === 'FAILED_PRECONDITION' && /location is not supported/i.test(errorBody.error?.message ?? '')) {
+        throw new Error('embedText: Gemini API недоступен из текущего региона сети/VPN — смени регион и попробуй снова');
+      }
       throw new Error(`embedText: Gemini HTTP ${response.status}`);
     }
 

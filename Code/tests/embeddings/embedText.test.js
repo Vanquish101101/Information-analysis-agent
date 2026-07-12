@@ -76,6 +76,21 @@ test('throws a descriptive error when the HTTP response is not ok', async () => 
   await assert.rejects(() => embedText('x'), /HTTP 429/);
 });
 
+// Найдено живой проверкой 2026-07-12: смена региона VPN/сети на машине
+// пользователя привела к реальному 400 FAILED_PRECONDITION "User location is
+// not supported for the API use" от Gemini — не ошибка ключа, ограничение
+// самого Google по стране. Без этой проверки пользователь увидел бы только
+// невнятный "HTTP 400", не понимая, что делать.
+test('throws a clear region-change message when Gemini blocks the request by location', async () => {
+  const fetchImpl = fakeFetch(
+    { error: { code: 400, message: 'User location is not supported for the API use.', status: 'FAILED_PRECONDITION' } },
+    { ok: false, status: 400 }
+  );
+  const embedText = createGeminiEmbedder({ apiKey: 'test-key', fetchImpl });
+
+  await assert.rejects(() => embedText('x'), /регион/i);
+});
+
 test('throws a descriptive error when the response has no embedding values', async () => {
   const fetchImpl = fakeFetch({});
   const embedText = createGeminiEmbedder({ apiKey: 'test-key', fetchImpl });
