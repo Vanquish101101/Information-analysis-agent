@@ -25,8 +25,22 @@ export function createScheduler({
   }
 
   let intervalHandle = null;
+  // Гвард от повторного входа: setInterval(checkOnce, POLL_INTERVAL_MS) не ждёт,
+  // пока предыдущий вызов завершится. Один прогон (extractClaims/dedup/contradiction/
+  // globalSynthesis по реальному бэклоку) может занимать несколько минут — дольше
+  // интервала опроса — и без этого флага следующий тик стартовал бы ещё один
+  // checkOnce поверх ещё не завершившегося: оба видят triggeredOnDate ещё не
+  // записанным и оба запускают полный onBatchReady параллельно (живой инцидент
+  // 2026-07-16: 9 перекрывающихся прогонов за 11 минут, один и тот же бэклог,
+  // ~$1.81 впустую и спам одинаковых уведомлений в Telegram).
+  let isChecking = false;
 
   async function checkOnce() {
+    if (isChecking) {
+      return 'BUSY';
+    }
+    isChecking = true;
+
     const currentTime = now();
     const currentDateStr = currentTime.toISOString().slice(0, 10);
 
@@ -82,6 +96,8 @@ export function createScheduler({
     } catch (err) {
       console.error('scheduler: checkOnce failed, treating tick as WAITING:', err.message);
       return 'WAITING';
+    } finally {
+      isChecking = false;
     }
   }
 

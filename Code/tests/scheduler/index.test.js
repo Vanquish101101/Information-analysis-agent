@@ -194,6 +194,57 @@ test('onBatchReady throwing does not crash checkOnce and state still resets', as
   assert.equal(stateStore.get('triggeredOnDate'), '2026-07-08');
 });
 
+test('overlapping checkOnce calls do not run onBatchReady concurrently (re-entrancy guard)', async () => {
+  // Найдено живым инцидентом 2026-07-16: setInterval(checkOnce, 60000) не ждёт, пока
+  // предыдущий вызов завершится. Прогон с extractClaims/dedup/contradiction/globalSynthesis
+  // на реальном бэклоге занимает несколько минут — дольше интервала опроса, поэтому
+  // следующий тик стартовал новый checkOnce поверх ещё не завершившегося, оба видели
+  // triggeredOnDate ещё не записанным и оба запускали onBatchReady. За 11 минут ушло 9
+  // перекрывающихся прогонов по одним и тем же 26 элементам, ~$1.81 впустую и спам в
+  // Telegram. Гарантия: пока один checkOnce ещё выполняется, следующий вызов должен
+  // немедленно вернуть 'BUSY', не трогая onBatchReady и не читая/не записывая state.
+  const currentTime = new Date('2026-07-08T11:00:00Z'); // на часе потолка — триггерит сразу
+  const db = makeFakeDb({
+    search_results: () => ({ data: [], error: null }),
+    agent3_handoff_queue: () => ({ data: [], error: null })
+  });
+
+  let callCount = 0;
+  let resolveBatch;
+  const onBatchReady = async () => {
+    callCount += 1;
+    await new Promise((resolve) => { resolveBatch = resolve; });
+  };
+
+  const scheduler = createScheduler({
+    db,
+    stateStore: createInMemoryStateStore(),
+    onBatchReady,
+    telegramId: 123,
+    now: () => currentTime
+  });
+
+  const firstCall = scheduler.checkOnce(); // запускается, рано или поздно зависнет внутри onBatchReady
+  const secondResult = await scheduler.checkOnce(); // должен увидеть занятость и не запускать второй прогон
+
+  assert.equal(secondResult, 'BUSY');
+
+  // resolveBatch назначается только внутри onBatchReady — ждём, пока firstCall реально
+  // до него доберётся (несколько await'ов раньше в checkOnce), прежде чем звать резолвер.
+  while (!resolveBatch) {
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  assert.equal(callCount, 1, 'onBatchReady must not be invoked a second time while the first is still running');
+
+  resolveBatch();
+  const firstResult = await firstCall;
+  assert.equal(firstResult, 'FORCED_CEILING');
+
+  // После освобождения guard'а обычный вызов снова работает штатно
+  const thirdResult = await scheduler.checkOnce();
+  assert.equal(thirdResult, 'OUTSIDE_WINDOW'); // triggeredOnDate уже записан первым прогоном
+});
+
 test('start() schedules repeated checkOnce polls, stop() halts them', async () => {
   let fromCalls = 0;
   const baseDb = makeFakeDb({

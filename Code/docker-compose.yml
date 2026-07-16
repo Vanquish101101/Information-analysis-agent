@@ -4,7 +4,7 @@ name: information-analysis-agent
 services:
   information-analysis-agent:
     build: .
-    image: information-analysis-agent:v0.7.0
+    image: information-analysis-agent:v0.7.1
     container_name: information-analysis-agent
     restart: unless-stopped
     env_file: .env
